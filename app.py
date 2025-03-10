@@ -34,6 +34,7 @@ with app.app_context():
     from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
     from classification import classify_record, export_batch_results
 
+    # Create database tables if they don't exist
     db.create_all()
 
 @app.route('/')
