@@ -160,7 +160,13 @@ def upload_file():
     except Exception as e:
         db.session.rollback()  # Откатываем транзакцию при ошибке
         logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
-        response = jsonify({'error': str(e)})
+        # Подробная информация об ошибке для отладки
+        error_details = {
+            'error': str(e),
+            'error_type': str(type(e).__name__),
+            'trace': str(e.__traceback__)
+        }
+        response = jsonify(error_details)
         response.headers['Content-Type'] = 'application/json'
         return response, 500
 

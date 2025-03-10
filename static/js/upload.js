@@ -59,23 +59,50 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(response => {
                 console.log(`Получен ответ. Статус: ${response.status}`);
-                if (!response.ok) {
+                // Проверяем Content-Type ответа
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
                     return response.json().then(data => {
-                        throw new Error(data.error || 'Неизвестная ошибка');
+                        console.log(`Данные ответа получены: ${JSON.stringify(data)}`);
+                        return {
+                            status: response.status,
+                            data: data
+                        };
+                    });
+                } else {
+                    // Если ответ не JSON, получаем текст и возвращаем ошибку
+                    return response.text().then(text => {
+                        console.log(`Получен не JSON ответ: ${text.substring(0, 100)}...`);
+                        return {
+                            status: response.status,
+                            data: { error: "Сервер вернул ошибку. Проверьте логи сервера." }
+                        };
                     });
                 }
-                return response.json();
             })
-            .then(data => {
-                console.log(`Данные ответа получены: ${JSON.stringify(data)}`);
+            .then(result => {
+                console.log(`Обрабатываем результат: ${JSON.stringify(result)}`);
 
                 // Останавливаем анимацию прогресса
                 clearInterval(progressInterval);
                 progressBar.style.width = '100%';
                 progressBar.setAttribute('aria-valuenow', 100);
 
-                // Отображаем сообщение об успехе
-                showResult(`Файл успешно загружен и обработан. ${data.message}`, 'success');
+                hideProgress();
+                if (result.status === 200) {
+                    if (result.data.success) {
+                        showResult(result.data.message, 'success');
+                    } else {
+                        showResult(`Ошибка: ${result.data.error}`, 'danger');
+                    }
+                } else {
+                    const errorMessage = result.data.error || 'Неизвестная ошибка';
+                    const errorDetails = result.data.error_type ? ` (${result.data.error_type})` : '';
+                    showResult(`Ошибка при загрузке: ${errorMessage}${errorDetails}`, 'danger');
+
+                    // Выводим дополнительную информацию в консоль для отладки
+                    console.error('Подробная информация об ошибке:', result.data);
+                }
 
                 // Очистить форму после успешной загрузки
                 uploadForm.reset();
@@ -95,6 +122,11 @@ document.addEventListener('DOMContentLoaded', function() {
         resultDiv.classList.add('d-none');
         progressBar.style.width = '0%';
         progressBar.setAttribute('aria-valuenow', 0);
+    }
+
+    function hideProgress() {
+        progressContainer.classList.add('d-none');
+        resultDiv.classList.remove('d-none');
     }
 
     // Функция для отображения результата
