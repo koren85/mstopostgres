@@ -6,14 +6,25 @@ document.addEventListener('DOMContentLoaded', function() {
     const uploadResult = document.getElementById('uploadResult');
     const errorDetails = document.getElementById('errorDetails');
     const errorDetailsText = document.getElementById('errorDetailsText');
+    const uploadStatus = document.getElementById('uploadStatus');
     
-    console.log("DOM загружен, скрипт upload.js инициализирован");
+    // Функция для обновления статуса загрузки
+    function updateStatus(message) {
+        if (uploadStatus) {
+            const timestamp = new Date().toLocaleTimeString();
+            uploadStatus.textContent += `\n[${timestamp}] ${message}`;
+            uploadStatus.scrollTop = uploadStatus.scrollHeight;
+        }
+        console.log(message);
+    }
+    
+    updateStatus("DOM загружен, скрипт upload.js инициализирован");
     
     if (uploadForm) {
-        console.log("Форма uploadForm найдена, добавляем обработчик событий");
+        updateStatus("Форма uploadForm найдена, добавляем обработчик событий");
         uploadForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            console.log("Форма отправлена, предотвращаем стандартное поведение");
+            updateStatus("Форма отправлена, предотвращаем стандартное поведение");
             
             // Скрываем предыдущие результаты
             uploadResult.classList.add('d-none');
@@ -24,7 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Показываем индикатор загрузки
             uploadProgress.classList.remove('d-none');
             progressBar.style.width = '0%';
-            console.log("Индикатор загрузки показан");
+            updateStatus("Индикатор загрузки показан");
             
             // Подготавливаем данные формы
             const formData = new FormData(uploadForm);
@@ -32,9 +43,15 @@ document.addEventListener('DOMContentLoaded', function() {
             const file = fileInput.files[0];
             
             if (file) {
-                console.log(`Файл выбран: ${file.name}, размер: ${file.size} байт, тип: ${file.type}`);
+                updateStatus(`Файл выбран: ${file.name}, размер: ${file.size} байт, тип: ${file.type}`);
             } else {
-                console.log("Файл не выбран!");
+                updateStatus("Файл не выбран!");
+                uploadProgress.classList.add('d-none');
+                uploadResult.classList.remove('d-none');
+                uploadResult.classList.remove('alert-success');
+                uploadResult.classList.add('alert-danger');
+                uploadResult.innerHTML = '<strong>Ошибка!</strong> Пожалуйста, выберите файл для загрузки.';
+                return;
             }
             
             // Анимация прогресса (искусственная, т.к. у нас нет реального прогресса)
@@ -45,73 +62,83 @@ document.addEventListener('DOMContentLoaded', function() {
                     clearInterval(progressInterval);
                 }
                 progressBar.style.width = `${progress}%`;
-                console.log(`Прогресс анимации: ${progress}%`);
+                if (progress % 20 === 0) {
+                    updateStatus(`Прогресс анимации: ${progress}%`);
+                }
             }, 300);
             
             // Отправляем запрос
-            console.log("Начинаем отправку запроса на /upload");
+            updateStatus("Начинаем отправку запроса на /upload");
             fetch('/upload', {
                 method: 'POST',
                 body: formData
             })
             .then(response => {
-                console.log(`Получен ответ. Статус: ${response.status}`);
+                updateStatus(`Получен ответ. Статус: ${response.status}`);
                 clearInterval(progressInterval);
                 progressBar.style.width = '100%';
                 
                 return response.json().then(data => {
-                    console.log("Данные ответа получены:", data);
+                    updateStatus(`Данные ответа получены: ${JSON.stringify(data).substring(0, 100)}...`);
                     return {
                         status: response.status,
                         data: data
                     };
                 });
             })
-            .then(({ status, data }) => {
+            .then(result => {
                 // Скрываем прогресс-бар через 0.5 секунды
-                console.log("Обрабатываем результат");
+                updateStatus(`Обрабатываем результат: ${JSON.stringify(result).substring(0, 100)}...`);
                 setTimeout(() => {
                     uploadProgress.classList.add('d-none');
                     uploadResult.classList.remove('d-none');
                     
-                    if (status >= 200 && status < 300) {
+                    if (result.status >= 200 && result.status < 300 && result.data.success) {
                         // Успешная загрузка
-                        console.log("Загрузка успешна");
+                        updateStatus("Загрузка успешна");
                         uploadResult.classList.remove('alert-danger');
                         uploadResult.classList.add('alert-success');
                         uploadResult.innerHTML = `
-                            <strong>Успешно!</strong> ${data.message}
+                            <strong>Успешно!</strong> ${result.data.message}
                             <div class="mt-2">
                                 <a href="/batches" class="btn btn-primary btn-sm">Перейти к загрузкам</a>
                             </div>
                         `;
                     } else {
                         // Ошибка при загрузке
-                        console.log("Ошибка при загрузке:", data.error);
+                        updateStatus(`Ошибка при загрузке: ${result.data.error}`);
                         uploadResult.classList.remove('alert-success');
                         uploadResult.classList.add('alert-danger');
-                        uploadResult.innerHTML = `<strong>Ошибка!</strong> ${data.error || 'Не удалось загрузить файл'}`;
+                        uploadResult.innerHTML = `<strong>Ошибка!</strong> ${result.data.error || 'Не удалось загрузить файл'}`;
                         
                         // Отображаем детали ошибки, если они есть
-                        if (data.error && errorDetails) {
+                        if (result.data.error && errorDetails) {
                             errorDetails.classList.remove('d-none');
-                            errorDetailsText.textContent = data.error;
+                            errorDetailsText.textContent = result.data.error;
                         }
                     }
                 }, 500);
             })
             .catch(error => {
-                console.error("Ошибка при отправке запроса:", error);
+                updateStatus(`Ошибка при отправке запроса: ${error.toString()}`);
                 clearInterval(progressInterval);
-                uploadProgress.classList.add('d-none');
-                uploadResult.classList.remove('d-none');
-                uploadResult.classList.remove('alert-success');
-                uploadResult.classList.add('alert-danger');
-                uploadResult.innerHTML = '<strong>Ошибка!</strong> Не удалось отправить запрос. Проверьте подключение к интернету.';
-                console.error('Error:', error);
+                
+                // Показываем сообщение об ошибке
+                setTimeout(() => {
+                    uploadProgress.classList.add('d-none');
+                    uploadResult.classList.remove('d-none');
+                    uploadResult.classList.remove('alert-success');
+                    uploadResult.classList.add('alert-danger');
+                    uploadResult.innerHTML = '<strong>Ошибка!</strong> Не удалось отправить запрос. Проверьте подключение к интернету.';
+                    
+                    if (errorDetails) {
+                        errorDetails.classList.remove('d-none');
+                        errorDetailsText.textContent = error.toString();
+                    }
+                }, 500);
             });
         });
     } else {
-        console.error("Форма загрузки не найдена на странице!");
+        updateStatus("Форма uploadForm не найдена на странице!");
     }
 });
