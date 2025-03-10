@@ -44,7 +44,7 @@ db.init_app(app)
 
 with app.app_context():
     # Import routes and models after db initialization
-    from models import MigrationClass, ClassificationRule, Discrepancy
+    from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData # Added AnalysisData import
     from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
     from classification import classify_record, export_batch_results
 
@@ -436,6 +436,119 @@ def export_batch(batch_id):
     except Exception as e:
         logging.error(f"Error exporting batch {batch_id}: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/analysis')
+def analysis():
+    """Страница анализа новых данных"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+
+    query = AnalysisData.query.order_by(AnalysisData.upload_date.desc())
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    return render_template('analysis.html',
+                         items=pagination.items,
+                         page=page,
+                         pages=pagination.pages)
+
+@app.route('/upload_analysis', methods=['POST'])
+def upload_analysis():
+    """Загрузка новых данных для анализа"""
+    logging.info("Получен запрос на загрузку данных для анализа")
+
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'Файл не предоставлен'}), 400
+
+    file = request.files['file']
+    source_system = request.form.get('source_system', 'Unknown')
+
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Пустое имя файла'}), 400
+
+    if not file.filename.endswith('.xlsx'):
+        return jsonify({'success': False, 'error': 'Поддерживаются только файлы Excel (.xlsx)'}), 400
+
+    try:
+        # Используем существующую функцию для обработки Excel
+        batch_id, processed_records = process_excel_file(file, source_system)
+
+        # Сохраняем записи в таблицу analysis_data
+        for record in processed_records:
+            analysis_record = AnalysisData(**record)
+            analysis_record.analysis_state = 'pending'
+            analysis_record.matched_historical_data = None
+            db.session.add(analysis_record)
+
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Обработано {len(processed_records)} записей',
+            'batch_id': batch_id
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Ошибка при загрузке данных для анализа: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/analyze_item/<int:item_id>', methods=['POST'])
+def analyze_item(item_id):
+    """Анализ отдельной записи"""
+    try:
+        # Получаем запись для анализа
+        item = AnalysisData.query.get_or_404(item_id)
+
+        # Ищем совпадения в исторических данных
+        matches = MigrationClass.query.filter(
+            MigrationClass.mssql_sxclass_name == item.mssql_sxclass_name,
+            MigrationClass.mssql_sxclass_description == item.mssql_sxclass_description
+        ).all()
+
+        if not matches:
+            item.analysis_state = 'analyzed'
+            item.matched_historical_data = []
+            item.analysis_date = datetime.utcnow()
+            db.session.commit()
+            return jsonify({'success': True, 'message': 'Совпадений не найдено'})
+
+        # Собираем информацию о совпадениях
+        historical_data = []
+        priznaks = set()
+
+        for match in matches:
+            if match.priznak:  # Учитываем только записи с заполненным priznak
+                historical_data.append({
+                    'priznak': match.priznak,
+                    'source_system': match.source_system,
+                    'upload_date': match.upload_date.isoformat() if match.upload_date else None
+                })
+                priznaks.add(match.priznak)
+
+        # Обновляем запись
+        item.matched_historical_data = historical_data
+        item.analysis_date = datetime.utcnow()
+
+        # Если найден только один вариант priznak, используем его
+        if len(priznaks) == 1:
+            item.priznak = next(iter(priznaks))
+            item.analysis_state = 'analyzed'
+        else:
+            item.analysis_state = 'conflict'
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Анализ завершен',
+            'matches_count': len(matches),
+            'unique_priznaks': len(priznaks)
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Ошибка при анализе записи {item_id}: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
