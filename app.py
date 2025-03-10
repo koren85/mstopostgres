@@ -36,6 +36,16 @@ with app.app_context():
 
     # Create database tables if they don't exist
     db.create_all()
+    
+    # Check if batch_id column exists, if not, add it
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    if 'migration_classes' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('migration_classes')]
+        if 'batch_id' not in columns:
+            db.session.execute(text('ALTER TABLE migration_classes ADD COLUMN batch_id VARCHAR(36)'))
+            db.session.commit()
+            logging.info("Added batch_id column to migration_classes table")
 
 @app.route('/')
 def index():
