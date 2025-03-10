@@ -139,7 +139,36 @@ def setup_database():
                         ADD COLUMN {col_name} {col_type};
                     """))
                     logging.info(f"Колонка {col_name} успешно добавлена")
-                    
+            
+            # Проверка таблицы analysis_data
+            result = connection.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'analysis_data'
+                );
+            """))
+            if result.scalar():
+                # Проверяем необходимые колонки в analysis_data
+                analysis_columns = [
+                    ('confidence_score', 'FLOAT'),
+                    ('classified_by', 'VARCHAR(50)')
+                ]
+                
+                for col_name, col_type in analysis_columns:
+                    result = connection.execute(text(f"""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.columns 
+                            WHERE table_name = 'analysis_data' AND column_name = '{col_name}'
+                        );
+                    """))
+                    if not result.scalar():
+                        logging.info(f"Добавляем колонку {col_name} в таблицу analysis_data")
+                        connection.execute(text(f"""
+                            ALTER TABLE analysis_data 
+                            ADD COLUMN {col_name} {col_type};
+                        """))
+                        logging.info(f"Колонка {col_name} успешно добавлена")
+                        
             logging.info("Проверка структуры базы данных успешно завершена")
                 
     except Exception as e:

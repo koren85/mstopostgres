@@ -89,6 +89,8 @@ class AnalysisData(db.Model):
     rule_info = db.Column(db.Text)
     source_system = db.Column(db.Text)
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
+    confidence_score = db.Column(db.Float)  # Уверенность классификации
+    classified_by = db.Column(db.String(50))  # manual, rule, or ai
     analysis_state = db.Column(db.String(50), default='pending')  # pending, analyzed, conflict
     matched_historical_data = db.Column(db.JSON)  # Для хранения информации о найденных совпадениях
     analysis_date = db.Column(db.DateTime)  # Когда был проведен анализ

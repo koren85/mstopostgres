@@ -475,9 +475,13 @@ def upload_analysis():
 
         # Сохраняем записи в таблицу analysis_data
         for record in processed_records:
-            analysis_record = AnalysisData(**record)
-            analysis_record.analysis_state = 'pending'
-            analysis_record.matched_historical_data = None
+            # Создаем копию записи и удаляем поля, которые могут вызвать конфликт
+            record_copy = record.copy()
+            # Устанавливаем значения по умолчанию для полей, которые мы будем устанавливать отдельно
+            record_copy["analysis_state"] = "pending"
+            record_copy["matched_historical_data"] = None
+            
+            analysis_record = AnalysisData(**record_copy)
             db.session.add(analysis_record)
 
         db.session.commit()
