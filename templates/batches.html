@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Управление загрузками данных</h2>
+    
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID загрузки</th>
+                            <th>Файл</th>
+                            <th>Дата загрузки</th>
+                            <th>Всего записей</th>
+                            <th>Источники</th>
+                            <th>Классификация</th>
+                            <th>Средняя уверенность</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in batches %}
+                        <tr>
+                            <td>{{ batch.batch_id[:8] }}</td>
+                            <td>{{ batch.file_name }}</td>
+                            <td>{{ batch.upload_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>{{ batch.stats.total_records }}</td>
+                            <td>{{ batch.stats.source_systems }}</td>
+                            <td>
+                                <small>
+                                    Ручная: {{ batch.stats.classifications.manual }}<br>
+                                    История: {{ batch.stats.classifications.historical }}<br>
+                                    Правила: {{ batch.stats.classifications.rule_based }}
+                                </small>
+                            </td>
+                            <td>{{ "%.0f"|format(batch.stats.avg_confidence * 100) }}%</td>
+                            <td>
+                                <div class="btn-group">
+                                    <a href="{{ url_for('export_batch', batch_id=batch.batch_id) }}" 
+                                       class="btn btn-sm btn-success">
+                                        <i class="bi bi-file-excel"></i> Экспорт
+                                    </a>
+                                    <button class="btn btn-sm btn-danger delete-batch" 
+                                            data-batch-id="{{ batch.batch_id }}"
+                                            data-bs-toggle="modal" 
+                                            data-bs-target="#deleteBatchModal">
+                                        <i class="bi bi-trash"></i> Удалить
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно подтверждения удаления -->
+<div class="modal fade" id="deleteBatchModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить эту загрузку? Это действие нельзя отменить.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBatch">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let batchToDelete = null;
+
+    // Обработка кнопок удаления
+    document.querySelectorAll('.delete-batch').forEach(button => {
+        button.addEventListener('click', function() {
+            batchToDelete = this.dataset.batchId;
+        });
+    });
+
+    // Подтверждение удаления
+    document.getElementById('confirmDeleteBatch').addEventListener('click', function() {
+        if (batchToDelete) {
+            fetch(`/api/batch/${batchToDelete}`, {
+                method: 'DELETE',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Ошибка при удалении загрузки');
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

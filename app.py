@@ -1,10 +1,11 @@
 import os
 import logging
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, url_for, redirect
+from flask import Flask, render_template, request, jsonify, url_for, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import func, or_
+import uuid
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -30,7 +31,8 @@ db.init_app(app)
 with app.app_context():
     # Import routes and models after db initialization
     from models import MigrationClass, ClassificationRule, Discrepancy
-    from utils import process_excel_file, analyze_discrepancies, suggest_classification
+    from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
+    from classification import classify_record, export_batch_results
 
     db.create_all()
 
@@ -53,7 +55,8 @@ def upload_file():
         return jsonify({'error': 'Only Excel files (.xlsx) are supported'}), 400
 
     try:
-        processed_records = process_excel_file(file, source_system)
+        # batch_id и records теперь возвращаются из process_excel_file
+        batch_id, processed_records = process_excel_file(file, source_system)
 
         # Save to database
         for record in processed_records:
@@ -63,7 +66,7 @@ def upload_file():
         db.session.commit()
         analyze_discrepancies()
 
-        return jsonify({'success': True, 'message': f'Processed {len(processed_records)} records'})
+        return jsonify({'success': True, 'message': f'Processed {len(processed_records)} records', 'batch_id': batch_id})
     except Exception as e:
         logging.error(f"Error processing file: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -85,12 +88,17 @@ def analyze():
 
 @app.route('/api/suggest_classification', methods=['POST'])
 def get_classification_suggestion():
+    """Получить предложение по классификации на основе исторических данных"""
     data = request.json
-    suggestion = suggest_classification(
-        data.get('mssql_sxclass_name'),
-        data.get('mssql_sxclass_description')
+    result = classify_record(
+        class_name=data.get('mssql_sxclass_name'),
+        description=data.get('mssql_sxclass_description')
     )
-    return jsonify(suggestion)
+    return jsonify({
+        'priznak': result['priznak'],
+        'confidence': result['confidence'],
+        'method': result['method']
+    })
 
 @app.route('/manage')
 def manage():
@@ -150,3 +158,63 @@ def delete_item(item_id):
         db.session.rollback()
         logging.error(f"Error deleting item {item_id}: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/batches')
+def batches():
+    """Страница управления загрузками"""
+    # Получаем уникальные batch_id
+    batch_ids = db.session.query(
+        MigrationClass.batch_id,
+        MigrationClass.file_name,
+        func.min(MigrationClass.upload_date).label('upload_date')
+    ).group_by(
+        MigrationClass.batch_id,
+        MigrationClass.file_name
+    ).order_by(
+        func.min(MigrationClass.upload_date).desc()
+    ).all()
+
+    # Собираем информацию по каждой загрузке
+    batches_info = []
+    for batch_id, file_name, upload_date in batch_ids:
+        stats = get_batch_statistics(batch_id)
+        batches_info.append({
+            'batch_id': batch_id,
+            'file_name': file_name,
+            'upload_date': upload_date,
+            'stats': stats
+        })
+
+    return render_template('batches.html', batches=batches_info)
+
+@app.route('/api/batch/<batch_id>', methods=['DELETE'])
+def delete_batch(batch_id):
+    """Удаление всех данных конкретной загрузки"""
+    try:
+        # Удаляем все записи с указанным batch_id
+        MigrationClass.query.filter_by(batch_id=batch_id).delete()
+        # Удаляем правила, созданные на основе этой загрузки
+        ClassificationRule.query.filter_by(source_batch_id=batch_id).delete()
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting batch {batch_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/batch/<batch_id>/export')
+def export_batch(batch_id):
+    """Экспорт данных загрузки в Excel"""
+    try:
+        output_file = export_batch_results(batch_id)
+        return send_file(
+            output_file,
+            as_attachment=True,
+            download_name=f"batch_{batch_id[:8]}_export.xlsx"
+        )
+    except Exception as e:
+        logging.error(f"Error exporting batch {batch_id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
