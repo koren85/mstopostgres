@@ -1,0 +1,220 @@
+Основная цель : Автоматизировать определение поля priznak для новых данных на основе исторических данных, предварительно обработанных вручную.
+Требования к системе :
+Возможность хранения исторических данных из разных источников (СДУ Воронеж, СДУ Владимир и т.д.)
+Наглядное представление данных
+Возможность анализа расхождений в ручной классификации
+Простота загрузки/редактирования/удаления данных
+Подсказка пользователю при классификации новых данных
+Предлагаемое решение :
+Архитектура системы:
+1. База данных:
+Создать базу данных с следующими таблицами:
+
+sql
+Копировать
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+⌄
+⌄
+⌄
+-- Основная таблица с данными
+CREATE TABLE Classes (
+    A_OUID BIGINT,
+    MSSQL_SXCLASS_DESCRIPTION TEXT,
+    MSSQL_SXCLASS_NAME TEXT,
+    MSSQL_SXCLASS_MAP TEXT,
+    priznak TEXT,
+    SystemClass BOOLEAN,
+    IsLinkTable BOOLEAN,
+    ParentClass TEXT,
+    ChildClasses TEXT,
+    ChildCount INT,
+    CreatedDate TIMESTAMP,
+    CreatedBy TEXT,
+    ModifiedDate TIMESTAMP,
+    ModifiedBy TEXT,
+    FolderPaths TEXT,
+    ObjectCount INT,
+    LastObjectCreated TIMESTAMP,
+    LastObjectModified TIMESTAMP,
+    AttributeCount INT,
+    Category TEXT,
+    MigrationFlag TEXT,
+    RuleInfo TEXT,
+    SourceSystem TEXT -- Источник данных (СДУ Воронеж, СДУ Владимир и т.д.)
+);
+
+-- Таблица для хранения расхождений
+CREATE TABLE Discrepancies (
+    Id SERIAL PRIMARY KEY,
+    ClassName TEXT,
+    Description TEXT,
+    DifferentPriznaks TEXT[], -- Массив различных значений priznak
+    SourceSystems TEXT[] -- Массив источников с различными значениями
+);
+
+-- Таблица правил
+CREATE TABLE Rules (
+    Id SERIAL PRIMARY KEY,
+    Condition TEXT,
+    PriznakValue TEXT
+);
+2. Загрузка данных:
+Создать скрипт для импорта данных из Excel файлов в базу данных
+При загрузке указывать источник данных (SourceSystem)
+3. Анализ расхождений:
+sql
+Копировать
+1
+2
+3
+4
+5
+6
+7
+8
+9
+⌄
+INSERT INTO Discrepancies (ClassName, Description, DifferentPriznaks, SourceSystems)
+SELECT 
+    MSSQL_SXCLASS_NAME,
+    MSSQL_SXCLASS_DESCRIPTION,
+    array_agg(DISTINCT priznak),
+    array_agg(DISTINCT SourceSystem)
+FROM Classes
+GROUP BY MSSQL_SXCLASS_NAME, MSSQL_SXCLASS_DESCRIPTION
+HAVING COUNT(DISTINCT priznak) > 1;
+4. Интерфейс пользователя:
+Создать веб-интерфейс или десктопное приложение для:
+Просмотра данных
+Редактирования/удаления записей
+Загрузки новых данных
+Просмотра расхождений
+Классификации новых данных
+5. Автоматическая классификация новых данных:
+python
+Копировать
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+⌄
+⌄
+⌄
+⌄
+⌄
+# Пример алгоритма на Python
+def classify_new_data(new_record):
+    # Шаг 1: Проверить точные совпадения
+    query = """
+        SELECT priznak, COUNT(*) as cnt
+        FROM Classes
+        WHERE MSSQL_SXCLASS_NAME = %s AND MSSQL_SXCLASS_DESCRIPTION = %s
+        GROUP BY priznak
+        ORDER BY cnt DESC
+    """
+    cursor.execute(query, (new_record['MSSQL_SXCLASS_NAME'], new_record['MSSQL_SXCLASS_DESCRIPTION']))
+    results = cursor.fetchall()
+    
+    if len(results) == 1:
+        return results[0][0]  # Вернуть наиболее частое значение priznak
+    
+    # Шаг 2: Если есть расхождения, показать пользователю варианты
+    if len(results) > 1:
+        print("Расхождения найдены:")
+        for res in results:
+            print(f"priznak: {res[0]}, количество: {res[1]}")
+        return None  # Пользователь выбирает вручную
+    
+    # Шаг 3: Использовать правила
+    query_rules = "SELECT PriznakValue FROM Rules WHERE Condition LIKE %s"
+    cursor.execute(query_rules, ('%' + new_record['MSSQL_SXCLASS_NAME'] + '%',))
+    rule_result = cursor.fetchone()
+    if rule_result:
+        return rule_result[0]
+    
+    # Шаг 4: Если ничего не подходит, пометить как "неопределено"
+    return "Неопределено"
+6. Визуализация:
+Использовать графические инструменты для визуализации данных (например, Power BI, Tableau или собственная разработка)
+Показывать:
+Распределение по категориям
+Расхождения между источниками
+Историю изменений
+7. Обучение системы:
+По мере накопления данных不断完善ить правила и алгоритмы классификации
+Возможно использовать машинное обучение для повышения точности预测
+Этот подход обеспечивает:
+
+Хранение всей истории данных
+Возможность анализа расхождений
+Автоматическую классификацию с учетом человеческого опыта
+Гибкость для дальнейшего развития системы
