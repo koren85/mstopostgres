@@ -24,12 +24,20 @@ def process_excel_file(file, source_system):
     
     records = []
     for _, row in df.iterrows():
+        # Проверяем и преобразуем a_ouid в числовой тип
+        try:
+            a_ouid = int(row['A_OUID']) if pd.notna(row['A_OUID']) else None
+        except (ValueError, TypeError):
+            logging.warning(f"Invalid A_OUID value: {row['A_OUID']}, setting to None")
+            a_ouid = None
+        
+        # Проверяем и преобразуем другие поля в строковый тип или None
         record = {
-            'a_ouid': row['A_OUID'],
-            'mssql_sxclass_description': row['MSSQL_SXCLASS_DESCRIPTION'],
-            'mssql_sxclass_name': row['MSSQL_SXCLASS_NAME'],
-            'mssql_sxclass_map': row['MSSQL_SXCLASS_MAP'],
-            'priznak': row['priznak'],
+            'a_ouid': a_ouid,
+            'mssql_sxclass_description': str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
+            'mssql_sxclass_name': str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
+            'mssql_sxclass_map': str(row['MSSQL_SXCLASS_MAP']) if pd.notna(row['MSSQL_SXCLASS_MAP']) else None,
+            'priznak': str(row['priznak']) if pd.notna(row['priznak']) else None,
             'source_system': source_system
         }
         records.append(record)
