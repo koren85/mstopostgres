@@ -6,68 +6,102 @@ from classification import create_batch_id, classify_record, analyze_batch_discr
 
 def process_excel_file(file, source_system):
     """Process uploaded Excel file and convert to database records"""
+    logging.info(f"Начало обработки файла: {file.filename}, источник: {source_system}")
+    
     # Создаем уникальный ID для этой загрузки
     batch_id = create_batch_id()
+    logging.info(f"Создан batch_id: {batch_id}")
 
-    # Сначала попробуем прочитать с обычными заголовками
-    df = pd.read_excel(file)
+    try:
+        # Сохраняем исходный файл для отладки
+        file_path = f"/tmp/{file.filename}"
+        file.save(file_path)
+        logging.info(f"Файл сохранен во временный каталог: {file_path}")
+        
+        # Сначала попробуем прочитать с обычными заголовками
+        df = pd.read_excel(file_path)
+        logging.info(f"Файл прочитан, найдены столбцы: {list(df.columns)}")
+        logging.info(f"Размер DataFrame: {df.shape}")
 
-    required_columns = [
-        'A_OUID', 'MSSQL_SXCLASS_DESCRIPTION', 'MSSQL_SXCLASS_NAME',
-        'MSSQL_SXCLASS_MAP', 'priznak'
-    ]
+        required_columns = [
+            'A_OUID', 'MSSQL_SXCLASS_DESCRIPTION', 'MSSQL_SXCLASS_NAME',
+            'MSSQL_SXCLASS_MAP', 'priznak'
+        ]
 
-    # Если не найдены требуемые столбцы, попробуем использовать вторую строку как заголовки
-    if not all(col in df.columns for col in required_columns):
-        logging.info("Trying to read Excel with header in the second row")
-        df = pd.read_excel(file, header=1)
+        # Если не найдены требуемые столбцы, попробуем использовать вторую строку как заголовки
+        if not all(col in df.columns for col in required_columns):
+            missing = [col for col in required_columns if col not in df.columns]
+            logging.info(f"Не найдены столбцы: {missing}. Пробуем использовать вторую строку как заголовки")
+            df = pd.read_excel(file_path, header=1)
+            logging.info(f"После изменения заголовка найдены столбцы: {list(df.columns)}")
 
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    if missing_columns:
-        raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            error_msg = f"Отсутствуют обязательные столбцы: {', '.join(missing_columns)}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
 
-    records = []
-    for _, row in df.iterrows():
-        # Проверяем и преобразуем a_ouid в числовой тип
-        try:
-            a_ouid = int(row['A_OUID']) if pd.notna(row['A_OUID']) else None
-        except (ValueError, TypeError):
-            logging.warning(f"Invalid A_OUID value: {row['A_OUID']}, setting to None")
-            a_ouid = None
+        logging.info(f"Все необходимые столбцы найдены. Обрабатываем {len(df)} записей")
+        
+        records = []
+        for index, row in df.iterrows():
+            # Проверяем и преобразуем a_ouid в числовой тип
+            try:
+                a_ouid = int(row['A_OUID']) if pd.notna(row['A_OUID']) else None
+            except (ValueError, TypeError):
+                logging.warning(f"Некорректное значение A_OUID: {row['A_OUID']}, установлено в None")
+                a_ouid = None
 
-        # Получаем классификацию для записи
-        classification = classify_record(
-            class_name=str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
-            description=str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
-            batch_id=batch_id
-        )
+            # Логируем данные для отладки
+            logging.debug(f"Запись {index}: A_OUID={a_ouid}, NAME={row['MSSQL_SXCLASS_NAME'] if pd.notna(row['MSSQL_SXCLASS_NAME']) else 'None'}")
+            
+            # Получаем классификацию для записи
+            classification = classify_record(
+                class_name=str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
+                description=str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
+                batch_id=batch_id
+            )
+            
+            logging.debug(f"Результат классификации: {classification}")
 
-        # Если в Excel есть признак, используем его (ручная классификация)
-        if pd.notna(row['priznak']):
-            priznak = str(row['priznak'])
-            classified_by = 'manual'
-            confidence_score = 1.0
-        else:
-            # Иначе используем автоматическую классификацию
-            priznak = classification['priznak']
-            classified_by = classification['method']
-            confidence_score = classification['confidence']
+            # Если в Excel есть признак, используем его (ручная классификация)
+            if pd.notna(row['priznak']):
+                priznak = str(row['priznak'])
+                classified_by = 'manual'
+                confidence_score = 1.0
+                logging.debug(f"Используется ручная классификация, priznak={priznak}")
+            else:
+                # Иначе используем автоматическую классификацию
+                priznak = classification['priznak']
+                classified_by = classification['method']
+                confidence_score = classification['confidence']
+                logging.debug(f"Используется автоматическая классификация: method={classified_by}, priznak={priznak}, confidence={confidence_score}")
 
-        record = {
-            'batch_id': batch_id,
-            'file_name': file.filename,
-            'a_ouid': a_ouid,
-            'mssql_sxclass_description': str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
-            'mssql_sxclass_name': str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
-            'mssql_sxclass_map': str(row['MSSQL_SXCLASS_MAP']) if pd.notna(row['MSSQL_SXCLASS_MAP']) else None,
-            'priznak': priznak,
-            'source_system': source_system,
-            'confidence_score': confidence_score,
-            'classified_by': classified_by
-        }
-        records.append(record)
+            record = {
+                'batch_id': batch_id,
+                'file_name': file.filename,
+                'a_ouid': a_ouid,
+                'mssql_sxclass_description': str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
+                'mssql_sxclass_name': str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
+                'mssql_sxclass_map': str(row['MSSQL_SXCLASS_MAP']) if pd.notna(row['MSSQL_SXCLASS_MAP']) else None,
+                'priznak': priznak,
+                'source_system': source_system,
+                'confidence_score': confidence_score,
+                'classified_by': classified_by
+            }
+            records.append(record)
 
-    return batch_id, records
+        logging.info(f"Завершена обработка {len(records)} записей")
+        
+        # Открываем файл снова для восстановления исходного положения
+        file.stream.seek(0)
+        return batch_id, records
+    
+    except Exception as e:
+        logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
+        # Открываем файл снова для восстановления исходного положения
+        file.stream.seek(0)
+        raise
 
 def analyze_discrepancies():
     """Analyze and record discrepancies in classifications"""

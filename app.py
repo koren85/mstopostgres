@@ -6,6 +6,15 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import func, or_
 import uuid
+import pandas as pd  # Явный импорт pandas
+# Проверяем наличие openpyxl
+try:
+    import openpyxl
+    logging.info("openpyxl успешно импортирован")
+except ImportError:
+    logging.error("Библиотека openpyxl не установлена! Она необходима для чтения Excel файлов")
+    os.system("pip install openpyxl")
+    logging.info("Установлена библиотека openpyxl")
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -79,33 +88,51 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    logging.info("Получен запрос на загрузку файла")
     if 'file' not in request.files:
+        logging.error("Файл не предоставлен")
         return jsonify({'error': 'No file provided'}), 400
 
     file = request.files['file']
     source_system = request.form.get('source_system', 'Unknown')
+    logging.info(f"Получен файл: {file.filename}, источник: {source_system}")
 
     if file.filename == '':
+        logging.error("Пустое имя файла")
         return jsonify({'error': 'No file selected'}), 400
 
     if not file.filename.endswith('.xlsx'):
+        logging.error(f"Неподдерживаемый формат файла: {file.filename}")
         return jsonify({'error': 'Only Excel files (.xlsx) are supported'}), 400
 
     try:
+        logging.info("Начинаем обработку файла...")
         # batch_id и records теперь возвращаются из process_excel_file
         batch_id, processed_records = process_excel_file(file, source_system)
+        logging.info(f"Обработка файла завершена. Batch ID: {batch_id}, записей: {len(processed_records)}")
 
         # Save to database
+        logging.info("Начинаем сохранение записей в базу данных")
+        count = 0
         for record in processed_records:
             migration_class = MigrationClass(**record)
             db.session.add(migration_class)
-
+            count += 1
+            if count % 100 == 0:  # Логируем каждые 100 записей
+                logging.info(f"Добавлено {count} записей из {len(processed_records)}")
+        
+        logging.info("Фиксируем изменения в базе данных")
         db.session.commit()
+        logging.info(f"Успешно сохранено {count} записей в базе данных")
+        
+        logging.info("Анализируем несоответствия...")
         analyze_discrepancies()
+        logging.info("Анализ несоответствий завершен")
 
         return jsonify({'success': True, 'message': f'Processed {len(processed_records)} records', 'batch_id': batch_id})
     except Exception as e:
-        logging.error(f"Error processing file: {str(e)}")
+        db.session.rollback()  # Откатываем транзакцию при ошибке
+        logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/analyze')
