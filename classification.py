@@ -15,7 +15,7 @@ def classify_record(class_name, description, batch_id=None):
     Returns: dict with classification and confidence score
     """
     logging.info(f"[КЛАССИФИКАЦИЯ] Начинаем классификацию: class_name='{class_name}', description='{description}'")
-    
+
     try:
         # Поиск точных совпадений в предыдущих загрузках
         logging.info(f"[КЛАССИФИКАЦИЯ] Поиск исторических совпадений...")
@@ -34,7 +34,7 @@ def classify_record(class_name, description, batch_id=None):
             total = sum(m.count for m in matches)
             best_match = max(matches, key=lambda m: m.count)
             confidence = best_match.count / total
-            
+
             logging.info(f"[КЛАССИФИКАЦИЯ] Лучшее совпадение: priznak='{best_match.priznak}', confidence={confidence}")
 
             return {
@@ -47,54 +47,44 @@ def classify_record(class_name, description, batch_id=None):
         # Поиск по правилам классификации
         try:
             logging.info(f"[КЛАССИФИКАЦИЯ] Поиск по правилам классификации...")
-            
+
             # Попробуем использовать безопасный запрос без проверки столбцов
             try:
                 # Проверим наличие колонки confidence_threshold напрямую через SQL
                 from sqlalchemy import text
                 from app import db
-                
+
                 # Выполняем SQL-запрос напрямую для проверки наличия колонки
                 column_check_query = text("""
                     SELECT column_name FROM information_schema.columns 
                     WHERE table_name = 'classification_rules' AND column_name = 'confidence_threshold'
                 """)
                 result = db.session.execute(column_check_query).fetchone()
-                
+
                 has_confidence_threshold = result is not None
                 logging.info(f"[КЛАССИФИКАЦИЯ] Проверка наличия колонки confidence_threshold: {has_confidence_threshold}")
-                
-                # Получаем правила, безопасно извлекая данные
-                if has_confidence_threshold:
-                    rules_query = text("""
-                        SELECT id, pattern, field, priznak_value, priority, confidence_threshold  
-                        FROM classification_rules 
-                        ORDER BY priority DESC
-                    """)
-                else:
-                    rules_query = text("""
-                        SELECT id, pattern, field, priznak_value, priority
-                        FROM classification_rules 
-                        ORDER BY priority DESC
-                    """)
-                
+
+                # Получаем правила, безопасно извлекая только гарантированно существующие данные
+                rules_query = text("""
+                    SELECT id, pattern, field, priznak_value, priority
+                    FROM classification_rules 
+                    ORDER BY priority DESC
+                """)
+
                 rule_results = db.session.execute(rules_query).fetchall()
                 logging.info(f"[КЛАССИФИКАЦИЯ] Найдено {len(rule_results)} правил классификации")
-                
+
                 # Обрабатываем правила
                 for rule in rule_results:
-                    confidence = 0.8  # Значение по умолчанию
-                    
+                    confidence = 0.8  # Значение по умолчанию всегда
+
                     # Извлечем данные из результата запроса
                     rule_id = rule[0]
                     pattern = rule[1]
                     field = rule[2]
                     priznak_value = rule[3]
-                    
-                    # Пытаемся получить confidence_threshold, если колонка существует
-                    if has_confidence_threshold:
-                        confidence = rule[5] if rule[5] is not None else 0.8
-                        
+
+
                     if field == 'name' and class_name and pattern in class_name:
                         logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для имени: pattern='{pattern}', priznak='{priznak_value}'")
                         return {
@@ -111,17 +101,17 @@ def classify_record(class_name, description, batch_id=None):
                             'method': 'rule',
                             'rule_id': rule_id
                         }
-                
+
             except Exception as e:
                 # Если SQL-запросы не сработали, пробуем через ORM с обработкой ошибок
                 logging.warning(f"[КЛАССИФИКАЦИЯ] Ошибка при прямом SQL-запросе: {str(e)}, пробуем через ORM")
-                
+
                 # Пробуем загрузить правила, игнорируя отсутствующие поля
                 from sqlalchemy import select
                 stmt = select(ClassificationRule).order_by(ClassificationRule.priority.desc())
                 rules = db.session.execute(stmt).scalars().all()
                 logging.info(f"[КЛАССИФИКАЦИЯ] Через ORM найдено {len(rules)} правил")
-                
+
                 for rule in rules:
                     confidence = 0.8  # Значение по умолчанию
                     try:
@@ -129,7 +119,7 @@ def classify_record(class_name, description, batch_id=None):
                         confidence = getattr(rule, 'confidence_threshold', 0.8)
                     except:
                         pass
-                    
+
                     if rule.field == 'name' and class_name and rule.pattern in class_name:
                         logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для имени: pattern='{rule.pattern}', priznak='{rule.priznak_value}'")
                         return {

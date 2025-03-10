@@ -43,11 +43,16 @@ def setup_database():
             """))
             if not result.scalar():
                 logging.info("Добавляем колонку confidence_threshold в таблицу classification_rules")
-                connection.execute(text("""
-                    ALTER TABLE classification_rules 
-                    ADD COLUMN confidence_threshold FLOAT DEFAULT 0.8;
-                """))
-                logging.info("Колонка confidence_threshold успешно добавлена")
+                try:
+                    connection.execute(text("""
+                        ALTER TABLE classification_rules 
+                        ADD COLUMN IF NOT EXISTS confidence_threshold FLOAT DEFAULT 0.8;
+                    """))
+                    connection.commit()  # Явное подтверждение изменений
+                    logging.info("Колонка confidence_threshold успешно добавлена")
+                except Exception as e:
+                    connection.rollback()  # Откат при ошибке
+                    logging.error(f"Ошибка при добавлении колонки confidence_threshold: {str(e)}")
             
             # Проверяем наличие колонки source_batch_id
             result = connection.execute(text("""
@@ -58,11 +63,16 @@ def setup_database():
             """))
             if not result.scalar():
                 logging.info("Добавляем колонку source_batch_id в таблицу classification_rules")
-                connection.execute(text("""
-                    ALTER TABLE classification_rules 
-                    ADD COLUMN source_batch_id VARCHAR(36);
-                """))
-                logging.info("Колонка source_batch_id успешно добавлена")
+                try:
+                    connection.execute(text("""
+                        ALTER TABLE classification_rules 
+                        ADD COLUMN IF NOT EXISTS source_batch_id VARCHAR(36);
+                    """))
+                    connection.commit()  # Явное подтверждение изменений
+                    logging.info("Колонка source_batch_id успешно добавлена")
+                except Exception as e:
+                    connection.rollback()  # Откат при ошибке
+                    logging.error(f"Ошибка при добавлении колонки source_batch_id: {str(e)}")
             
             # Проверка таблицы migration_classes
             result = connection.execute(text("""
