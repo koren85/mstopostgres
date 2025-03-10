@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, скрипт upload.js инициализирован');
 
@@ -41,8 +42,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Анимация прогресса загрузки
             let progress = 0;
             const progressInterval = setInterval(() => {
-                progress += 5;
-                if (progress <= 90) {
+                progress += 20;
+                if (progress <= 100) {
                     progressBar.style.width = `${progress}%`;
                     progressBar.setAttribute('aria-valuenow', progress);
                     console.log(`Прогресс анимации: ${progress}%`);
@@ -72,7 +73,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     // Если ответ не JSON, получаем текст и возвращаем ошибку
                     return response.text().then(text => {
-                        console.log(`Получен не JSON ответ: ${text.substring(0, 100)}...`);
+                        console.error(`Получен не JSON ответ: ${text.substring(0, 100)}...`);
                         return {
                             status: response.status,
                             data: { error: "Сервер вернул ошибку. Проверьте логи сервера." }
@@ -111,6 +112,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log(`Ошибка: ${err}`);
                 // Останавливаем анимацию прогресса
                 clearInterval(progressInterval);
+                hideProgress();
                 showResult(`Ошибка при загрузке: ${err}`, 'danger');
             });
         });
@@ -118,22 +120,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для отображения индикатора загрузки
     function showProgress() {
-        progressContainer.classList.remove('d-none');
         resultDiv.classList.add('d-none');
+        progressContainer.classList.remove('d-none');
         progressBar.style.width = '0%';
         progressBar.setAttribute('aria-valuenow', 0);
     }
 
+    // Функция для скрытия индикатора загрузки
     function hideProgress() {
         progressContainer.classList.add('d-none');
-        resultDiv.classList.remove('d-none');
     }
 
     // Функция для отображения результата
     function showResult(message, type) {
-        progressContainer.classList.add('d-none');
-        resultDiv.classList.remove('d-none');
-        resultDiv.className = `alert alert-${type} mt-3`;
         resultDiv.textContent = message;
+        resultDiv.className = `alert alert-${type} mt-3`;
+        resultDiv.classList.remove('d-none');
     }
 });
