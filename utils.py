@@ -104,18 +104,15 @@ def get_batch_statistics(batch_id):
     stats = db.session.query(
         func.count(MigrationClass.id).label('total_records'),
         func.count(func.distinct(MigrationClass.source_system)).label('source_systems'),
-        func.sum(func.case(
-            (MigrationClass.classified_by == 'manual', 1),
-            else_=0
-        )).label('manual_classifications'),
-        func.sum(func.case(
-            (MigrationClass.classified_by == 'historical', 1),
-            else_=0
-        )).label('historical_classifications'),
-        func.sum(func.case(
-            (MigrationClass.classified_by == 'rule', 1),
-            else_=0
-        )).label('rule_based_classifications'),
+        func.sum(
+            func.case([(MigrationClass.classified_by == 'manual', 1)], else_=0)
+        ).label('manual_classifications'),
+        func.sum(
+            func.case([(MigrationClass.classified_by == 'historical', 1)], else_=0)
+        ).label('historical_classifications'),
+        func.sum(
+            func.case([(MigrationClass.classified_by == 'rule', 1)], else_=0)
+        ).label('rule_based_classifications'),
         func.avg(MigrationClass.confidence_score).label('avg_confidence')
     ).filter(
         MigrationClass.batch_id == batch_id
