@@ -1,8 +1,22 @@
-from app import app
 import os
+import logging
 import multiprocessing
+from app import app
+from db_setup import setup_database
 
 if __name__ == "__main__":
+    # Настраиваем логирование
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Проверяем и настраиваем структуру БД перед запуском
+    logging.info("Проверка структуры базы данных перед запуском...")
+    setup_database()
+
+    # Запуск приложения
     # В development режиме используем встроенный сервер Flask
     if os.environ.get("FLASK_ENV") == "development":
         app.run(host="0.0.0.0", port=5000, debug=True)

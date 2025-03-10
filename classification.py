@@ -48,50 +48,107 @@ def classify_record(class_name, description, batch_id=None):
         try:
             logging.info(f"[КЛАССИФИКАЦИЯ] Поиск по правилам классификации...")
             
-            # Проверяем наличие колонки confidence_threshold
-            from sqlalchemy import inspect
-            from app import db
-            inspector = inspect(db.engine)
-            
-            # Проверяем колонки в таблице classification_rules
-            columns = [col['name'] for col in inspector.get_columns('classification_rules')]
-            logging.info(f"[КЛАССИФИКАЦИЯ] Существующие колонки в таблице classification_rules: {columns}")
-            
-            # Если колонки нет, выполняем fallback на фиксированное значение
-            use_fallback = 'confidence_threshold' not in columns
-            
-            rules = ClassificationRule.query.order_by(ClassificationRule.priority.desc()).all()
-            logging.info(f"[КЛАССИФИКАЦИЯ] Найдено {len(rules)} правил классификации")
-
-            for rule in rules:
-                confidence = 0.8  # Значение по умолчанию
+            # Попробуем использовать безопасный запрос без проверки столбцов
+            try:
+                # Проверим наличие колонки confidence_threshold напрямую через SQL
+                from sqlalchemy import text
+                from app import db
                 
-                # Пытаемся получить confidence_threshold, если колонка существует
-                if not use_fallback:
-                    try:
-                        confidence = rule.confidence_threshold
-                    except:
-                        logging.warning(f"[КЛАССИФИКАЦИЯ] Не удалось получить confidence_threshold, используем значение по умолчанию")
+                # Выполняем SQL-запрос напрямую для проверки наличия колонки
+                column_check_query = text("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'classification_rules' AND column_name = 'confidence_threshold'
+                """)
+                result = db.session.execute(column_check_query).fetchone()
+                
+                has_confidence_threshold = result is not None
+                logging.info(f"[КЛАССИФИКАЦИЯ] Проверка наличия колонки confidence_threshold: {has_confidence_threshold}")
+                
+                # Получаем правила, безопасно извлекая данные
+                if has_confidence_threshold:
+                    rules_query = text("""
+                        SELECT id, pattern, field, priznak_value, priority, confidence_threshold  
+                        FROM classification_rules 
+                        ORDER BY priority DESC
+                    """)
+                else:
+                    rules_query = text("""
+                        SELECT id, pattern, field, priznak_value, priority
+                        FROM classification_rules 
+                        ORDER BY priority DESC
+                    """)
+                
+                rule_results = db.session.execute(rules_query).fetchall()
+                logging.info(f"[КЛАССИФИКАЦИЯ] Найдено {len(rule_results)} правил классификации")
+                
+                # Обрабатываем правила
+                for rule in rule_results:
+                    confidence = 0.8  # Значение по умолчанию
+                    
+                    # Извлечем данные из результата запроса
+                    rule_id = rule[0]
+                    pattern = rule[1]
+                    field = rule[2]
+                    priznak_value = rule[3]
+                    
+                    # Пытаемся получить confidence_threshold, если колонка существует
+                    if has_confidence_threshold:
+                        confidence = rule[5] if rule[5] is not None else 0.8
                         
-                if rule.field == 'name' and class_name and rule.pattern in class_name:
-                    logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для имени: pattern='{rule.pattern}', priznak='{rule.priznak_value}'")
-                    return {
-                        'priznak': rule.priznak_value,
-                        'confidence': confidence,
-                        'method': 'rule',
-                        'rule_id': rule.id
-                    }
-                elif rule.field == 'description' and description and rule.pattern in description:
-                    logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для описания: pattern='{rule.pattern}', priznak='{rule.priznak_value}'")
-                    return {
-                        'priznak': rule.priznak_value,
-                        'confidence': confidence,
-                        'method': 'rule',
-                        'rule_id': rule.id
-                    }
+                    if field == 'name' and class_name and pattern in class_name:
+                        logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для имени: pattern='{pattern}', priznak='{priznak_value}'")
+                        return {
+                            'priznak': priznak_value,
+                            'confidence': confidence,
+                            'method': 'rule',
+                            'rule_id': rule_id
+                        }
+                    elif field == 'description' and description and pattern in description:
+                        logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для описания: pattern='{pattern}', priznak='{priznak_value}'")
+                        return {
+                            'priznak': priznak_value,
+                            'confidence': confidence,
+                            'method': 'rule',
+                            'rule_id': rule_id
+                        }
+                
+            except Exception as e:
+                # Если SQL-запросы не сработали, пробуем через ORM с обработкой ошибок
+                logging.warning(f"[КЛАССИФИКАЦИЯ] Ошибка при прямом SQL-запросе: {str(e)}, пробуем через ORM")
+                
+                # Пробуем загрузить правила, игнорируя отсутствующие поля
+                from sqlalchemy import select
+                stmt = select(ClassificationRule).order_by(ClassificationRule.priority.desc())
+                rules = db.session.execute(stmt).scalars().all()
+                logging.info(f"[КЛАССИФИКАЦИЯ] Через ORM найдено {len(rules)} правил")
+                
+                for rule in rules:
+                    confidence = 0.8  # Значение по умолчанию
+                    try:
+                        # Пробуем получить confidence_threshold, перехватываем AttributeError если поле не существует
+                        confidence = getattr(rule, 'confidence_threshold', 0.8)
+                    except:
+                        pass
+                    
+                    if rule.field == 'name' and class_name and rule.pattern in class_name:
+                        logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для имени: pattern='{rule.pattern}', priznak='{rule.priznak_value}'")
+                        return {
+                            'priznak': rule.priznak_value,
+                            'confidence': confidence,
+                            'method': 'rule',
+                            'rule_id': rule.id
+                        }
+                    elif rule.field == 'description' and description and rule.pattern in description:
+                        logging.info(f"[КЛАССИФИКАЦИЯ] Найдено правило для описания: pattern='{rule.pattern}', priznak='{rule.priznak_value}'")
+                        return {
+                            'priznak': rule.priznak_value,
+                            'confidence': confidence,
+                            'method': 'rule',
+                            'rule_id': rule.id
+                        }
         except Exception as e:
             logging.error(f"[КЛАССИФИКАЦИЯ] Ошибка при поиске правил: {str(e)}", exc_info=True)
-            # Continue with default classification if rules query fails
+            # Продолжаем с классификацией по умолчанию в случае ошибки
 
         # Если не найдено правил или произошла ошибка при их поиске
         logging.info(f"[КЛАССИФИКАЦИЯ] Не найдено подходящих правил или исторических данных. Используем пустую классификацию.")
