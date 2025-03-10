@@ -34,7 +34,15 @@
 
                 <div id="uploadResult" class="alert mt-3 d-none"></div>
 
-                <!-- Убран отладочный блок и детали ошибок для чистоты интерфейса -->
+                <!-- Progress indicator (initially hidden) -->
+                <div id="progressContainer" class="d-none mt-3">
+                    <p class="text-center mb-2">Загрузка и обработка файла...</p>
+                    <div class="progress">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+                             role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+
                 </div>
             </div>
         </div>
