@@ -91,20 +91,12 @@ with app.app_context():
             'source_batch_id': 'VARCHAR(36)'
         }
         
-        try:
-            for col_name, col_type in rule_required_columns.items():
-                if col_name not in columns:
-                    db.session.execute(text(f'ALTER TABLE classification_rules ADD COLUMN {col_name} {col_type}'))
-                    db.session.commit()
-                    logging.info(f"Added {col_name} column to classification_rules table")
-        except Exception as e:
-            logging.error(f"Error adding columns to classification_rules: {str(e)}")
-            # Удаляем и пересоздаем таблицу, если проблемы с изменением структуры
-            db.session.execute(text('DROP TABLE IF EXISTS classification_rules'))
-            db.session.commit()
-            logging.info("Dropped classification_rules table to recreate it")
-            db.create_all()
-            logging.info("Recreated all tables including classification_rules")
+        # Удаляем и пересоздаем таблицу, так как возникают проблемы с изменением структуры
+        logging.info("Пересоздаем таблицу classification_rules для обновления структуры")
+        db.session.execute(text('DROP TABLE IF EXISTS classification_rules'))
+        db.session.commit()
+        db.create_all()
+        logging.info("Пересоздана таблица classification_rules с новой структурой")
 
 @app.route('/')
 def index():
