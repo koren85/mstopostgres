@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Общая статистика</h5>
+                <p class="card-text">
+                    <strong>Всего записей:</strong> {{ stats.total_records }}<br>
+                    <strong>Источников данных:</strong> {{ stats.source_systems }}<br>
+                    <strong>Найдено расхождений:</strong> {{ stats.discrepancies }}
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Распределение по источникам</h5>
+                <canvas id="sourcesChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="card-title mb-0">Расхождения в классификации</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Класс</th>
+                        <th>Описание</th>
+                        <th>Признаки</th>
+                        <th>Источники</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for disc in discrepancies %}
+                    <tr>
+                        <td>{{ disc.class_name }}</td>
+                        <td>{{ disc.description }}</td>
+                        <td>
+                            {% for priznak in disc.different_priznaks %}
+                            <span class="badge bg-info me-1">{{ priznak }}</span>
+                            {% endfor %}
+                        </td>
+                        <td>
+                            {% for source in disc.source_systems %}
+                            <span class="badge bg-secondary me-1">{{ source }}</span>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sources = {{ sources|tojson }};
+    const ctx = document.getElementById('sourcesChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: sources,
+            datasets: [{
+                label: 'Количество записей',
+                data: sources.map(() => Math.floor(Math.random() * 100)), // Replace with actual data
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

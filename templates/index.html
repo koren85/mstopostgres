@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Загрузка данных миграции</h5>
+            </div>
+            <div class="card-body">
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="sourceSystem" class="form-label">Источник данных</label>
+                        <input type="text" class="form-control" id="sourceSystem" name="source_system" 
+                               placeholder="Например: СДУ Воронеж" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="excelFile" class="form-label">Excel файл с данными</label>
+                        <input type="file" class="form-control" id="excelFile" name="file" 
+                               accept=".xlsx" required>
+                        <div class="form-text">Поддерживаются только файлы .xlsx</div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-upload"></i> Загрузить
+                    </button>
+                </form>
+
+                <div id="uploadProgress" class="progress mt-3 d-none">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+
+                <div id="uploadResult" class="alert mt-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
