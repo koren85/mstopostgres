@@ -81,6 +81,21 @@ with app.app_context():
                 db.session.execute(text(f'ALTER TABLE discrepancies ADD COLUMN {col_name} {col_type}'))
                 db.session.commit()
                 logging.info(f"Added {col_name} column to discrepancies table")
+    
+    # Проверяем и добавляем отсутствующие колонки в таблицу classification_rules
+    if 'classification_rules' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('classification_rules')]
+        
+        rule_required_columns = {
+            'confidence_threshold': 'FLOAT DEFAULT 0.8',
+            'source_batch_id': 'VARCHAR(36)'
+        }
+        
+        for col_name, col_type in rule_required_columns.items():
+            if col_name not in columns:
+                db.session.execute(text(f'ALTER TABLE classification_rules ADD COLUMN {col_name} {col_type}'))
+                db.session.commit()
+                logging.info(f"Added {col_name} column to classification_rules table")
 
 @app.route('/')
 def index():

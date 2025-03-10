@@ -38,13 +38,13 @@ class ClassificationRule(db.Model):
     __tablename__ = 'classification_rules'
 
     id = db.Column(db.Integer, primary_key=True)
-    pattern = db.Column(db.Text)
-    field = db.Column(db.Text)
-    priznak_value = db.Column(db.Text)
-    priority = db.Column(db.Integer)
+    pattern = db.Column(db.String(255), nullable=False)
+    field = db.Column(db.String(50), nullable=False)  # name, description
+    priznak_value = db.Column(db.String(50), nullable=False)
+    priority = db.Column(db.Integer, default=0)
     created_date = db.Column(db.DateTime, default=datetime.utcnow)
-    confidence_threshold = db.Column(db.Float, default=0.8)  # Порог уверенности для применения правила
-    source_batch_id = db.Column(db.String(36))  # ID загрузки, из которой создано правило
+    confidence_threshold = db.Column(db.Float, default=0.8)
+    source_batch_id = db.Column(db.String(36), nullable=True)
 
 class Discrepancy(db.Model):
     __tablename__ = 'discrepancies'
