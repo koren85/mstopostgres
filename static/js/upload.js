@@ -13,7 +13,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Скрываем предыдущие результаты
             uploadResult.classList.add('d-none');
-            errorDetails.classList.add('d-none');
+            if (errorDetails) {
+                errorDetails.classList.add('d-none');
+            }
             
             // Показываем индикатор загрузки
             uploadProgress.classList.remove('d-none');
@@ -69,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         uploadResult.innerHTML = `<strong>Ошибка!</strong> ${data.error || 'Не удалось загрузить файл'}`;
                         
                         // Отображаем детали ошибки, если они есть
-                        if (data.error) {
+                        if (data.error && errorDetails) {
                             errorDetails.classList.remove('d-none');
                             errorDetailsText.textContent = data.error;
                         }
@@ -82,10 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 uploadResult.classList.remove('d-none');
                 uploadResult.classList.remove('alert-success');
                 uploadResult.classList.add('alert-danger');
-                uploadResult.innerHTML = '<strong>Ошибка!</strong> Что-то пошло не так. Пожалуйста, попробуйте еще раз.';
-                
-                errorDetails.classList.remove('d-none');
-                errorDetailsText.textContent = error.toString();
+                uploadResult.innerHTML = '<strong>Ошибка!</strong> Не удалось отправить запрос. Проверьте подключение к интернету.';
                 console.error('Error:', error);
             });
         });
