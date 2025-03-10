@@ -1,4 +1,3 @@
-
 document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('uploadForm');
     const uploadProgress = document.getElementById('uploadProgress');
@@ -7,7 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const errorDetails = document.getElementById('errorDetails');
     const errorDetailsText = document.getElementById('errorDetailsText');
     const uploadStatus = document.getElementById('uploadStatus');
-    
+
     // Функция для обновления статуса загрузки
     function updateStatus(message) {
         if (uploadStatus) {
@@ -17,33 +16,36 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         console.log(message);
     }
-    
+
     updateStatus("DOM загружен, скрипт upload.js инициализирован");
-    
+
     if (uploadForm) {
         updateStatus("Форма uploadForm найдена, добавляем обработчик событий");
         uploadForm.addEventListener('submit', function(e) {
             e.preventDefault();
             updateStatus("Форма отправлена, предотвращаем стандартное поведение");
-            
+
             // Скрываем предыдущие результаты
             uploadResult.classList.add('d-none');
             if (errorDetails) {
                 errorDetails.classList.add('d-none');
             }
-            
+
             // Показываем индикатор загрузки
             uploadProgress.classList.remove('d-none');
             progressBar.style.width = '0%';
             updateStatus("Индикатор загрузки показан");
-            
+
             // Подготавливаем данные формы
             const formData = new FormData(uploadForm);
             const fileInput = document.getElementById('excelFile');
             const file = fileInput.files[0];
-            
+
             if (file) {
                 updateStatus(`Файл выбран: ${file.name}, размер: ${file.size} байт, тип: ${file.type}`);
+                // Переименовываем поле файла для соответствия ожиданиям сервера
+                formData.append('file', file);
+                formData.delete('excelFile');
             } else {
                 updateStatus("Файл не выбран!");
                 uploadProgress.classList.add('d-none');
@@ -53,7 +55,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 uploadResult.innerHTML = '<strong>Ошибка!</strong> Пожалуйста, выберите файл для загрузки.';
                 return;
             }
-            
+
             // Анимация прогресса (искусственная, т.к. у нас нет реального прогресса)
             let progress = 0;
             const progressInterval = setInterval(() => {
@@ -66,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     updateStatus(`Прогресс анимации: ${progress}%`);
                 }
             }, 300);
-            
+
             // Отправляем запрос
             updateStatus("Начинаем отправку запроса на /upload");
             fetch('/upload', {
@@ -77,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateStatus(`Получен ответ. Статус: ${response.status}`);
                 clearInterval(progressInterval);
                 progressBar.style.width = '100%';
-                
+
                 return response.json().then(data => {
                     updateStatus(`Данные ответа получены: ${JSON.stringify(data).substring(0, 100)}...`);
                     return {
@@ -92,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 setTimeout(() => {
                     uploadProgress.classList.add('d-none');
                     uploadResult.classList.remove('d-none');
-                    
+
                     if (result.status >= 200 && result.status < 300 && result.data.success) {
                         // Успешная загрузка
                         updateStatus("Загрузка успешна");
@@ -110,7 +112,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         uploadResult.classList.remove('alert-success');
                         uploadResult.classList.add('alert-danger');
                         uploadResult.innerHTML = `<strong>Ошибка!</strong> ${result.data.error || 'Не удалось загрузить файл'}`;
-                        
+
                         // Отображаем детали ошибки, если они есть
                         if (result.data.error && errorDetails) {
                             errorDetails.classList.remove('d-none');
@@ -122,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => {
                 updateStatus(`Ошибка при отправке запроса: ${error.toString()}`);
                 clearInterval(progressInterval);
-                
+
                 // Показываем сообщение об ошибке
                 setTimeout(() => {
                     uploadProgress.classList.add('d-none');
@@ -130,7 +132,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     uploadResult.classList.remove('alert-success');
                     uploadResult.classList.add('alert-danger');
                     uploadResult.innerHTML = '<strong>Ошибка!</strong> Не удалось отправить запрос. Проверьте подключение к интернету.';
-                    
+
                     if (errorDetails) {
                         errorDetails.classList.remove('d-none');
                         errorDetailsText.textContent = error.toString();

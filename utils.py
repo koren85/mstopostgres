@@ -9,7 +9,7 @@ def process_excel_file(file, source_system):
     logging.info(f"===== НАЧАЛО ОБРАБОТКИ EXCEL ФАЙЛА =====")
     logging.info(f"Файл: {file.filename}, источник: {source_system}")
     logging.info(f"Тип объекта файла: {type(file)}")
-    
+
     # Создаем уникальный ID для этой загрузки
     batch_id = create_batch_id()
     logging.info(f"Создан batch_id: {batch_id}")
@@ -25,7 +25,7 @@ def process_excel_file(file, source_system):
             logging.info(f"Файл успешно сохранен. Размер: {file_size} байт")
         else:
             logging.error(f"Файл не был сохранен по пути {file_path}")
-        
+
         # Сначала попробуем прочитать с обычными заголовками
         df = pd.read_excel(file_path)
         logging.info(f"Файл прочитан, найдены столбцы: {list(df.columns)}")
@@ -50,7 +50,7 @@ def process_excel_file(file, source_system):
             raise ValueError(error_msg)
 
         logging.info(f"Все необходимые столбцы найдены. Обрабатываем {len(df)} записей")
-        
+
         records = []
         for index, row in df.iterrows():
             # Проверяем и преобразуем a_ouid в числовой тип
@@ -62,14 +62,14 @@ def process_excel_file(file, source_system):
 
             # Логируем данные для отладки
             logging.debug(f"Запись {index}: A_OUID={a_ouid}, NAME={row['MSSQL_SXCLASS_NAME'] if pd.notna(row['MSSQL_SXCLASS_NAME']) else 'None'}")
-            
+
             # Получаем классификацию для записи
             classification = classify_record(
                 class_name=str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
                 description=str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
                 batch_id=batch_id
             )
-            
+
             logging.debug(f"Результат классификации: {classification}")
 
             # Если в Excel есть признак, используем его (ручная классификация)
@@ -100,11 +100,11 @@ def process_excel_file(file, source_system):
             records.append(record)
 
         logging.info(f"Завершена обработка {len(records)} записей")
-        
+
         # Открываем файл снова для восстановления исходного положения
         file.stream.seek(0)
         return batch_id, records
-    
+
     except Exception as e:
         logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
         # Открываем файл снова для восстановления исходного положения

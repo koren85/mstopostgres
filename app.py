@@ -93,7 +93,7 @@ def upload_file():
     logging.info(f"Заголовки запроса: {dict(request.headers)}")
     logging.info(f"Форма данных: {dict(request.form)}")
     logging.info(f"Файлы в запросе: {request.files.keys()}")
-    
+
     if 'file' not in request.files:
         logging.error("Файл не предоставлен в запросе! Ключи в request.files: " + str(list(request.files.keys())))
         return jsonify({'error': 'No file provided'}), 400
@@ -126,11 +126,11 @@ def upload_file():
             count += 1
             if count % 100 == 0:  # Логируем каждые 100 записей
                 logging.info(f"Добавлено {count} записей из {len(processed_records)}")
-        
+
         logging.info("Фиксируем изменения в базе данных")
         db.session.commit()
         logging.info(f"Успешно сохранено {count} записей в базе данных")
-        
+
         logging.info("Анализируем несоответствия...")
         analyze_discrepancies()
         logging.info("Анализ несоответствий завершен")
