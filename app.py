@@ -40,10 +40,11 @@ with app.app_context():
     # Check if required columns exist, if not, add them
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
+    
+    # Проверяем и добавляем отсутствующие колонки в таблицу migration_classes
     if 'migration_classes' in inspector.get_table_names():
         columns = [col['name'] for col in inspector.get_columns('migration_classes')]
         
-        # Проверяем и добавляем отсутствующие колонки
         required_columns = {
             'batch_id': 'VARCHAR(36)',
             'file_name': 'VARCHAR(255)',
@@ -56,6 +57,21 @@ with app.app_context():
                 db.session.execute(text(f'ALTER TABLE migration_classes ADD COLUMN {col_name} {col_type}'))
                 db.session.commit()
                 logging.info(f"Added {col_name} column to migration_classes table")
+    
+    # Проверяем и добавляем отсутствующие колонки в таблицу discrepancies
+    if 'discrepancies' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('discrepancies')]
+        
+        discrepancy_required_columns = {
+            'resolved': 'BOOLEAN DEFAULT FALSE',
+            'resolution_note': 'TEXT'
+        }
+        
+        for col_name, col_type in discrepancy_required_columns.items():
+            if col_name not in columns:
+                db.session.execute(text(f'ALTER TABLE discrepancies ADD COLUMN {col_name} {col_type}'))
+                db.session.commit()
+                logging.info(f"Added {col_name} column to discrepancies table")
 
 @app.route('/')
 def index():
@@ -94,18 +110,23 @@ def upload_file():
 
 @app.route('/analyze')
 def analyze():
-    source_systems = db.session.query(MigrationClass.source_system).distinct().all()
-    sources = [s[0] for s in source_systems]
+    try:
+        source_systems = db.session.query(MigrationClass.source_system).distinct().all()
+        sources = [s[0] for s in source_systems]
 
-    discrepancies = Discrepancy.query.all()
+        discrepancies = Discrepancy.query.all()
 
-    stats = {
-        'total_records': MigrationClass.query.count(),
-        'source_systems': len(sources),
-        'discrepancies': len(discrepancies)
-    }
+        stats = {
+            'total_records': MigrationClass.query.count(),
+            'source_systems': len(sources),
+            'discrepancies': len(discrepancies)
+        }
 
-    return render_template('analyze.html', stats=stats, sources=sources, discrepancies=discrepancies)
+        return render_template('analyze.html', stats=stats, sources=sources, discrepancies=discrepancies)
+    except Exception as e:
+        logging.error(f"Error on analyze page: {str(e)}")
+        return render_template('analyze.html', stats={'total_records': 0, 'source_systems': 0, 'discrepancies': 0}, 
+                              sources=[], discrepancies=[], error=str(e))
 
 @app.route('/api/suggest_classification', methods=['POST'])
 def get_classification_suggestion():
