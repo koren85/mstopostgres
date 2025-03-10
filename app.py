@@ -17,14 +17,19 @@ except ImportError:
     logging.info("Установлена библиотека openpyxl")
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)  # Логирование SQL-запросов
 
 class Base(DeclarativeBase):
     pass
 
 db = SQLAlchemy(model_class=Base)
 app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET")
+app.secret_key = os.environ.get("SESSION_SECRET", "default_secret_key")
 
 # Database configuration
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
@@ -43,16 +48,26 @@ with app.app_context():
     from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
     from classification import classify_record, export_batch_results
 
+    logging.info("======== ИНИЦИАЛИЗАЦИЯ ПРИЛОЖЕНИЯ ========")
+    
     # Create database tables if they don't exist
+    logging.info("Создаем таблицы базы данных, если они не существуют...")
     db.create_all()
+    logging.info("Таблицы базы данных созданы.")
     
     # Check if required columns exist, if not, add them
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
     
+    # Проверяем структуру БД
+    logging.info("Проверяем структуру базы данных...")
+    table_names = inspector.get_table_names()
+    logging.info(f"Найдены таблицы: {table_names}")
+    
     # Проверяем и добавляем отсутствующие колонки в таблицу migration_classes
-    if 'migration_classes' in inspector.get_table_names():
+    if 'migration_classes' in table_names:
         columns = [col['name'] for col in inspector.get_columns('migration_classes')]
+        logging.info(f"Колонки в таблице migration_classes: {columns}")
         
         required_columns = {
             'batch_id': 'VARCHAR(36)',
@@ -63,13 +78,21 @@ with app.app_context():
         
         for col_name, col_type in required_columns.items():
             if col_name not in columns:
-                db.session.execute(text(f'ALTER TABLE migration_classes ADD COLUMN {col_name} {col_type}'))
-                db.session.commit()
-                logging.info(f"Added {col_name} column to migration_classes table")
+                logging.info(f"Добавляем отсутствующую колонку {col_name} в таблицу migration_classes")
+                try:
+                    db.session.execute(text(f'ALTER TABLE migration_classes ADD COLUMN {col_name} {col_type}'))
+                    db.session.commit()
+                    logging.info(f"Успешно добавлена колонка {col_name} в таблицу migration_classes")
+                except Exception as e:
+                    db.session.rollback()
+                    logging.error(f"Ошибка при добавлении колонки {col_name}: {str(e)}")
+    else:
+        logging.warning("Таблица migration_classes не найдена. Будет создана автоматически.")
     
     # Проверяем и добавляем отсутствующие колонки в таблицу discrepancies
-    if 'discrepancies' in inspector.get_table_names():
+    if 'discrepancies' in table_names:
         columns = [col['name'] for col in inspector.get_columns('discrepancies')]
+        logging.info(f"Колонки в таблице discrepancies: {columns}")
         
         discrepancy_required_columns = {
             'resolved': 'BOOLEAN DEFAULT FALSE',
@@ -78,25 +101,76 @@ with app.app_context():
         
         for col_name, col_type in discrepancy_required_columns.items():
             if col_name not in columns:
-                db.session.execute(text(f'ALTER TABLE discrepancies ADD COLUMN {col_name} {col_type}'))
-                db.session.commit()
-                logging.info(f"Added {col_name} column to discrepancies table")
+                logging.info(f"Добавляем отсутствующую колонку {col_name} в таблицу discrepancies")
+                try:
+                    db.session.execute(text(f'ALTER TABLE discrepancies ADD COLUMN {col_name} {col_type}'))
+                    db.session.commit()
+                    logging.info(f"Успешно добавлена колонка {col_name} в таблицу discrepancies")
+                except Exception as e:
+                    db.session.rollback()
+                    logging.error(f"Ошибка при добавлении колонки {col_name}: {str(e)}")
+    else:
+        logging.warning("Таблица discrepancies не найдена. Будет создана автоматически.")
     
-    # Проверяем и добавляем отсутствующие колонки в таблицу classification_rules
-    if 'classification_rules' in inspector.get_table_names():
+    # Пересоздаем таблицу classification_rules полностью
+    logging.info("Работа с таблицей classification_rules...")
+    if 'classification_rules' in table_names:
         columns = [col['name'] for col in inspector.get_columns('classification_rules')]
+        logging.info(f"Текущие колонки в таблице classification_rules: {columns}")
         
-        rule_required_columns = {
-            'confidence_threshold': 'FLOAT DEFAULT 0.8',
-            'source_batch_id': 'VARCHAR(36)'
-        }
+        # Проверяем наличие необходимых колонок
+        missing_columns = []
+        required_columns = ['confidence_threshold', 'source_batch_id']
+        for col in required_columns:
+            if col not in columns:
+                missing_columns.append(col)
         
-        # Удаляем и пересоздаем таблицу, так как возникают проблемы с изменением структуры
-        logging.info("Пересоздаем таблицу classification_rules для обновления структуры")
-        db.session.execute(text('DROP TABLE IF EXISTS classification_rules'))
-        db.session.commit()
+        if missing_columns:
+            logging.warning(f"Отсутствуют колонки: {missing_columns}. Пересоздаем таблицу classification_rules")
+            try:
+                # Сохраняем существующие данные
+                try:
+                    existing_rules = []
+                    rules = db.session.execute(text('SELECT pattern, field, priznak_value, priority FROM classification_rules')).fetchall()
+                    for rule in rules:
+                        existing_rules.append({
+                            'pattern': rule[0],
+                            'field': rule[1],
+                            'priznak_value': rule[2],
+                            'priority': rule[3]
+                        })
+                    logging.info(f"Сохранено {len(existing_rules)} существующих правил")
+                except Exception as e:
+                    logging.error(f"Ошибка при чтении существующих правил: {str(e)}")
+                    existing_rules = []
+                
+                # Удаляем существующую таблицу
+                logging.info("Удаляем существующую таблицу classification_rules")
+                db.session.execute(text('DROP TABLE IF EXISTS classification_rules'))
+                db.session.commit()
+                
+                # Создаем таблицу с нужной структурой
+                logging.info("Создаем таблицу classification_rules с новой структурой")
+                db.create_all()
+                
+                # Восстанавливаем данные
+                if existing_rules:
+                    logging.info(f"Восстанавливаем {len(existing_rules)} правил классификации")
+                    for rule in existing_rules:
+                        sql = text(f"""
+                            INSERT INTO classification_rules 
+                            (pattern, field, priznak_value, priority, confidence_threshold) 
+                            VALUES ('{rule['pattern']}', '{rule['field']}', '{rule['priznak_value']}', {rule['priority']}, 0.8)
+                        """)
+                        db.session.execute(sql)
+                    db.session.commit()
+                    logging.info("Правила классификации успешно восстановлены")
+            except Exception as e:
+                db.session.rollback()
+                logging.error(f"Ошибка при пересоздании таблицы classification_rules: {str(e)}", exc_info=True)
+    else:
+        logging.info("Таблица classification_rules не существует, будет создана")
         db.create_all()
-        logging.info("Пересоздана таблица classification_rules с новой структурой")
 
 @app.route('/')
 def index():
@@ -111,63 +185,98 @@ def upload_file():
     logging.info(f"Файлы в запросе: {request.files.keys()}")
 
     if 'file' not in request.files:
-        logging.error("Файл не предоставлен в запросе! Ключи в request.files: " + str(list(request.files.keys())))
-        return jsonify({'error': 'No file provided'}), 400
+        error_msg = "Файл не предоставлен в запросе! Ключи в request.files: " + str(list(request.files.keys()))
+        logging.error(error_msg)
+        return jsonify({'error': error_msg}), 400
 
     file = request.files['file']
     source_system = request.form.get('source_system', 'Unknown')
-    logging.info(f"Получен файл: {file.filename}, размер: {file.content_length or 'unknown'}, тип: {file.content_type or 'unknown'}")
+    
+    try:
+        file_size = len(file.read())
+        file.seek(0)  # Сбрасываем указатель на начало файла
+        logging.info(f"Получен файл: {file.filename}, размер: {file_size} байт, тип: {file.content_type or 'unknown'}")
+    except Exception as e:
+        logging.error(f"Ошибка при определении размера файла: {str(e)}")
+        file_size = "unknown"
+        
     logging.info(f"Источник: {source_system}")
 
     if file.filename == '':
-        logging.error("Пустое имя файла")
-        return jsonify({'error': 'No file selected'}), 400
+        error_msg = "Пустое имя файла"
+        logging.error(error_msg)
+        return jsonify({'error': error_msg}), 400
 
     if not file.filename.endswith('.xlsx'):
-        logging.error(f"Неподдерживаемый формат файла: {file.filename}")
+        error_msg = f"Неподдерживаемый формат файла: {file.filename}"
+        logging.error(error_msg)
         return jsonify({'error': 'Only Excel files (.xlsx) are supported'}), 400
 
     try:
-        logging.info("Начинаем обработку файла...")
+        logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 1: Начинаем обработку файла...")
         batch_id, processed_records = process_excel_file(file, source_system)
-        logging.info(f"Обработка файла завершена. Batch ID: {batch_id}, записей: {len(processed_records)}")
+        logging.info(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 1: Обработка файла завершена. Batch ID: {batch_id}, записей: {len(processed_records)}")
 
         # Save to database
-        logging.info("Начинаем сохранение записей в базу данных")
+        logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Начинаем сохранение записей в базу данных")
         count = 0
-        for record in processed_records:
-            migration_class = MigrationClass(**record)
-            db.session.add(migration_class)
-            count += 1
-            if count % 100 == 0:  # Логируем каждые 100 записей
-                logging.info(f"Добавлено {count} записей из {len(processed_records)}")
+        try:
+            for record in processed_records:
+                migration_class = MigrationClass(**record)
+                db.session.add(migration_class)
+                count += 1
+                if count % 50 == 0:  # Логируем каждые 50 записей
+                    logging.info(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Добавлено {count} записей из {len(processed_records)}")
+                    # Промежуточный коммит для больших загрузок
+                    db.session.flush()
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Ошибка при добавлении записей в БД: {str(e)}", exc_info=True)
+            raise ValueError(f"Ошибка при сохранении записей в базу данных: {str(e)}")
 
-        logging.info("Фиксируем изменения в базе данных")
-        db.session.commit()
-        logging.info(f"Успешно сохранено {count} записей в базе данных")
+        logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Фиксируем изменения в базе данных")
+        try:
+            db.session.commit()
+            logging.info(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Успешно сохранено {count} записей в базе данных")
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 2: Ошибка при коммите транзакции: {str(e)}", exc_info=True)
+            raise ValueError(f"Ошибка при фиксации изменений в базе данных: {str(e)}")
 
-        logging.info("Анализируем несоответствия...")
-        analyze_discrepancies()
-        logging.info("Анализ несоответствий завершен")
+        logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 3: Анализируем несоответствия...")
+        try:
+            analyze_discrepancies()
+            logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 3: Анализ несоответствий завершен")
+        except Exception as e:
+            logging.error(f"[ОСНОВНОЙ ПРОЦЕСС] Шаг 3: Ошибка при анализе несоответствий: {str(e)}", exc_info=True)
+            # Продолжаем выполнение, даже если был сбой при анализе несоответствий
 
+        logging.info("[ОСНОВНОЙ ПРОЦЕСС] Шаг 4: Формируем ответ клиенту")
         response = jsonify({
             'success': True, 
             'message': f'Processed {len(processed_records)} records', 
             'batch_id': batch_id
         })
         response.headers['Content-Type'] = 'application/json'
+        logging.info("======== ЗАВЕРШЕНИЕ ОБРАБОТКИ ЗАГРУЗКИ ========")
         return response
     except Exception as e:
         db.session.rollback()  # Откатываем транзакцию при ошибке
-        logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
+        logging.error(f"[КРИТИЧЕСКАЯ ОШИБКА] Ошибка при обработке файла: {str(e)}", exc_info=True)
+        
         # Подробная информация об ошибке для отладки
         error_details = {
             'error': str(e),
             'error_type': str(type(e).__name__),
             'trace': str(e.__traceback__)
         }
+        
+        from traceback import format_exc
+        logging.error(f"Полный стек вызовов:\n{format_exc()}")
+        
         response = jsonify(error_details)
         response.headers['Content-Type'] = 'application/json'
+        logging.info("======== ЗАВЕРШЕНИЕ ОБРАБОТКИ ЗАГРУЗКИ С ОШИБКОЙ ========")
         return response, 500
 
 @app.route('/analyze')

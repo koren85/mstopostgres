@@ -17,19 +17,26 @@ def process_excel_file(file, source_system):
     try:
         # Сохраняем исходный файл для отладки
         file_path = f"/tmp/{file.filename}"
-        logging.info(f"Попытка сохранения файла по пути: {file_path}")
+        logging.info(f"[ЭТАП 1] Попытка сохранения файла по пути: {file_path}")
         file.save(file_path)
         import os
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
-            logging.info(f"Файл успешно сохранен. Размер: {file_size} байт")
+            logging.info(f"[ЭТАП 1] Файл успешно сохранен. Размер: {file_size} байт")
         else:
-            logging.error(f"Файл не был сохранен по пути {file_path}")
+            logging.error(f"[ЭТАП 1] Файл не был сохранен по пути {file_path}")
+            raise FileNotFoundError(f"Не удалось сохранить файл по пути {file_path}")
 
+        logging.info(f"[ЭТАП 2] Начинаем чтение Excel файла...")
         # Сначала попробуем прочитать с обычными заголовками
-        df = pd.read_excel(file_path)
-        logging.info(f"Файл прочитан, найдены столбцы: {list(df.columns)}")
-        logging.info(f"Размер DataFrame: {df.shape}")
+        try:
+            df = pd.read_excel(file_path)
+            logging.info(f"[ЭТАП 2] Файл прочитан успешно")
+            logging.info(f"[ЭТАП 2] Найдены столбцы: {list(df.columns)}")
+            logging.info(f"[ЭТАП 2] Размер DataFrame: {df.shape}")
+        except Exception as e:
+            logging.error(f"[ЭТАП 2] Ошибка при чтении Excel файла: {str(e)}", exc_info=True)
+            raise ValueError(f"Не удалось прочитать Excel файл: {str(e)}")
 
         required_columns = [
             'A_OUID', 'MSSQL_SXCLASS_DESCRIPTION', 'MSSQL_SXCLASS_NAME',
@@ -39,74 +46,97 @@ def process_excel_file(file, source_system):
         # Если не найдены требуемые столбцы, попробуем использовать вторую строку как заголовки
         if not all(col in df.columns for col in required_columns):
             missing = [col for col in required_columns if col not in df.columns]
-            logging.info(f"Не найдены столбцы: {missing}. Пробуем использовать вторую строку как заголовки")
-            df = pd.read_excel(file_path, header=1)
-            logging.info(f"После изменения заголовка найдены столбцы: {list(df.columns)}")
+            logging.info(f"[ЭТАП 2] Не найдены столбцы: {missing}. Пробуем использовать вторую строку как заголовки")
+            try:
+                df = pd.read_excel(file_path, header=1)
+                logging.info(f"[ЭТАП 2] После изменения заголовка найдены столбцы: {list(df.columns)}")
+            except Exception as e:
+                logging.error(f"[ЭТАП 2] Ошибка при повторном чтении Excel файла с header=1: {str(e)}", exc_info=True)
+                raise ValueError(f"Не удалось прочитать Excel файл с другим заголовком: {str(e)}")
 
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             error_msg = f"Отсутствуют обязательные столбцы: {', '.join(missing_columns)}"
-            logging.error(error_msg)
+            logging.error(f"[ЭТАП 2] {error_msg}")
             raise ValueError(error_msg)
 
-        logging.info(f"Все необходимые столбцы найдены. Обрабатываем {len(df)} записей")
+        logging.info(f"[ЭТАП 3] Все необходимые столбцы найдены. Обрабатываем {len(df)} записей")
 
         records = []
+        processed_count = 0
+        error_count = 0
+        
         for index, row in df.iterrows():
-            # Проверяем и преобразуем a_ouid в числовой тип
             try:
-                a_ouid = int(row['A_OUID']) if pd.notna(row['A_OUID']) else None
-            except (ValueError, TypeError):
-                logging.warning(f"Некорректное значение A_OUID: {row['A_OUID']}, установлено в None")
-                a_ouid = None
+                if index % 100 == 0:
+                    logging.info(f"[ЭТАП 3] Обработано {index} записей из {len(df)}")
+                
+                # Проверяем и преобразуем a_ouid в числовой тип
+                try:
+                    a_ouid = int(row['A_OUID']) if pd.notna(row['A_OUID']) else None
+                except (ValueError, TypeError):
+                    logging.warning(f"[ЭТАП 3] Запись {index}: Некорректное значение A_OUID: {row['A_OUID']}, установлено в None")
+                    a_ouid = None
 
-            # Логируем данные для отладки
-            logging.debug(f"Запись {index}: A_OUID={a_ouid}, NAME={row['MSSQL_SXCLASS_NAME'] if pd.notna(row['MSSQL_SXCLASS_NAME']) else 'None'}")
+                # Логируем данные для отладки при каждой 10-й записи или при ошибке
+                if index % 10 == 0:
+                    logging.info(f"[ЭТАП 3] Запись {index}: A_OUID={a_ouid}, NAME={row['MSSQL_SXCLASS_NAME'] if pd.notna(row['MSSQL_SXCLASS_NAME']) else 'None'}")
 
-            # Получаем классификацию для записи
-            classification = classify_record(
-                class_name=str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
-                description=str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
-                batch_id=batch_id
-            )
+                # Подготовка данных для классификации
+                class_name = str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None
+                description = str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None
+                
+                logging.info(f"[ЭТАП 3] Запись {index}: Начинаем классификацию")
+                # Получаем классификацию для записи
+                classification = classify_record(
+                    class_name=class_name,
+                    description=description,
+                    batch_id=batch_id
+                )
 
-            logging.debug(f"Результат классификации: {classification}")
+                logging.info(f"[ЭТАП 3] Запись {index}: Результат классификации: {classification}")
 
-            # Если в Excel есть признак, используем его (ручная классификация)
-            if pd.notna(row['priznak']):
-                priznak = str(row['priznak'])
-                classified_by = 'manual'
-                confidence_score = 1.0
-                logging.debug(f"Используется ручная классификация, priznak={priznak}")
-            else:
-                # Иначе используем автоматическую классификацию
-                priznak = classification['priznak']
-                classified_by = classification['method']
-                confidence_score = classification['confidence']
-                logging.debug(f"Используется автоматическая классификация: method={classified_by}, priznak={priznak}, confidence={confidence_score}")
+                # Если в Excel есть признак, используем его (ручная классификация)
+                if pd.notna(row['priznak']):
+                    priznak = str(row['priznak'])
+                    classified_by = 'manual'
+                    confidence_score = 1.0
+                    logging.info(f"[ЭТАП 3] Запись {index}: Используется ручная классификация, priznak={priznak}")
+                else:
+                    # Иначе используем автоматическую классификацию
+                    priznak = classification['priznak']
+                    classified_by = classification['method']
+                    confidence_score = classification['confidence']
+                    logging.info(f"[ЭТАП 3] Запись {index}: Автоматическая классификация: method={classified_by}, priznak={priznak}, confidence={confidence_score}")
 
-            record = {
-                'batch_id': batch_id,
-                'file_name': file.filename,
-                'a_ouid': a_ouid,
-                'mssql_sxclass_description': str(row['MSSQL_SXCLASS_DESCRIPTION']) if pd.notna(row['MSSQL_SXCLASS_DESCRIPTION']) else None,
-                'mssql_sxclass_name': str(row['MSSQL_SXCLASS_NAME']) if pd.notna(row['MSSQL_SXCLASS_NAME']) else None,
-                'mssql_sxclass_map': str(row['MSSQL_SXCLASS_MAP']) if pd.notna(row['MSSQL_SXCLASS_MAP']) else None,
-                'priznak': priznak,
-                'source_system': source_system,
-                'confidence_score': confidence_score,
-                'classified_by': classified_by
-            }
-            records.append(record)
+                record = {
+                    'batch_id': batch_id,
+                    'file_name': file.filename,
+                    'a_ouid': a_ouid,
+                    'mssql_sxclass_description': description,
+                    'mssql_sxclass_name': class_name,
+                    'mssql_sxclass_map': str(row['MSSQL_SXCLASS_MAP']) if pd.notna(row['MSSQL_SXCLASS_MAP']) else None,
+                    'priznak': priznak,
+                    'source_system': source_system,
+                    'confidence_score': confidence_score,
+                    'classified_by': classified_by
+                }
+                records.append(record)
+                processed_count += 1
+                
+            except Exception as e:
+                error_count += 1
+                logging.error(f"[ЭТАП 3] Ошибка при обработке записи {index}: {str(e)}", exc_info=True)
+                # Пропускаем проблемную запись и продолжаем
 
-        logging.info(f"Завершена обработка {len(records)} записей")
+        logging.info(f"[ЭТАП 4] Завершена обработка {processed_count} записей (успешно: {processed_count}, с ошибками: {error_count})")
 
         # Открываем файл снова для восстановления исходного положения
         file.stream.seek(0)
         return batch_id, records
 
     except Exception as e:
-        logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
+        logging.error(f"[КРИТИЧЕСКАЯ ОШИБКА] Ошибка при обработке файла: {str(e)}", exc_info=True)
         # Открываем файл снова для восстановления исходного положения
         file.stream.seek(0)
         raise
