@@ -37,15 +37,25 @@ with app.app_context():
     # Create database tables if they don't exist
     db.create_all()
     
-    # Check if batch_id column exists, if not, add it
+    # Check if required columns exist, if not, add them
     from sqlalchemy import inspect, text
     inspector = inspect(db.engine)
     if 'migration_classes' in inspector.get_table_names():
         columns = [col['name'] for col in inspector.get_columns('migration_classes')]
-        if 'batch_id' not in columns:
-            db.session.execute(text('ALTER TABLE migration_classes ADD COLUMN batch_id VARCHAR(36)'))
-            db.session.commit()
-            logging.info("Added batch_id column to migration_classes table")
+        
+        # Проверяем и добавляем отсутствующие колонки
+        required_columns = {
+            'batch_id': 'VARCHAR(36)',
+            'file_name': 'VARCHAR(255)',
+            'confidence_score': 'FLOAT',
+            'classified_by': 'VARCHAR(50)'
+        }
+        
+        for col_name, col_type in required_columns.items():
+            if col_name not in columns:
+                db.session.execute(text(f'ALTER TABLE migration_classes ADD COLUMN {col_name} {col_type}'))
+                db.session.commit()
+                logging.info(f"Added {col_name} column to migration_classes table")
 
 @app.route('/')
 def index():
@@ -173,30 +183,38 @@ def delete_item(item_id):
 @app.route('/batches')
 def batches():
     """Страница управления загрузками"""
-    # Получаем уникальные batch_id
-    batch_ids = db.session.query(
-        MigrationClass.batch_id,
-        MigrationClass.file_name,
-        func.min(MigrationClass.upload_date).label('upload_date')
-    ).group_by(
-        MigrationClass.batch_id,
-        MigrationClass.file_name
-    ).order_by(
-        func.min(MigrationClass.upload_date).desc()
-    ).all()
+    try:
+        # Получаем уникальные batch_id
+        batch_ids = db.session.query(
+            MigrationClass.batch_id,
+            MigrationClass.file_name,
+            func.min(MigrationClass.upload_date).label('upload_date')
+        ).group_by(
+            MigrationClass.batch_id,
+            MigrationClass.file_name
+        ).order_by(
+            func.min(MigrationClass.upload_date).desc()
+        ).all()
 
-    # Собираем информацию по каждой загрузке
-    batches_info = []
-    for batch_id, file_name, upload_date in batch_ids:
-        stats = get_batch_statistics(batch_id)
-        batches_info.append({
-            'batch_id': batch_id,
-            'file_name': file_name,
-            'upload_date': upload_date,
-            'stats': stats
-        })
+        # Собираем информацию по каждой загрузке
+        batches_info = []
+        for record in batch_ids:
+            batch_id = record[0]
+            file_name = record[1] if record[1] else "Неизвестный файл"
+            upload_date = record[2]
+            
+            stats = get_batch_statistics(batch_id)
+            batches_info.append({
+                'batch_id': batch_id,
+                'file_name': file_name,
+                'upload_date': upload_date,
+                'stats': stats
+            })
 
-    return render_template('batches.html', batches=batches_info)
+        return render_template('batches.html', batches=batches_info)
+    except Exception as e:
+        logging.error(f"Error on batches page: {str(e)}")
+        return render_template('batches.html', batches=[], error=str(e))
 
 @app.route('/api/batch/<batch_id>', methods=['DELETE'])
 def delete_batch(batch_id):
