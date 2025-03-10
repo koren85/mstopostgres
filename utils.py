@@ -6,7 +6,9 @@ from classification import create_batch_id, classify_record, analyze_batch_discr
 
 def process_excel_file(file, source_system):
     """Process uploaded Excel file and convert to database records"""
-    logging.info(f"Начало обработки файла: {file.filename}, источник: {source_system}")
+    logging.info(f"===== НАЧАЛО ОБРАБОТКИ EXCEL ФАЙЛА =====")
+    logging.info(f"Файл: {file.filename}, источник: {source_system}")
+    logging.info(f"Тип объекта файла: {type(file)}")
     
     # Создаем уникальный ID для этой загрузки
     batch_id = create_batch_id()
@@ -15,8 +17,14 @@ def process_excel_file(file, source_system):
     try:
         # Сохраняем исходный файл для отладки
         file_path = f"/tmp/{file.filename}"
+        logging.info(f"Попытка сохранения файла по пути: {file_path}")
         file.save(file_path)
-        logging.info(f"Файл сохранен во временный каталог: {file_path}")
+        import os
+        if os.path.exists(file_path):
+            file_size = os.path.getsize(file_path)
+            logging.info(f"Файл успешно сохранен. Размер: {file_size} байт")
+        else:
+            logging.error(f"Файл не был сохранен по пути {file_path}")
         
         # Сначала попробуем прочитать с обычными заголовками
         df = pd.read_excel(file_path)

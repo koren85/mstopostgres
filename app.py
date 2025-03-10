@@ -88,14 +88,20 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    logging.info("Получен запрос на загрузку файла")
+    logging.info("======== НАЧАЛО ОБРАБОТКИ ЗАГРУЗКИ ========")
+    logging.info(f"Получен запрос на загрузку файла. Метод: {request.method}")
+    logging.info(f"Заголовки запроса: {dict(request.headers)}")
+    logging.info(f"Форма данных: {dict(request.form)}")
+    logging.info(f"Файлы в запросе: {request.files.keys()}")
+    
     if 'file' not in request.files:
-        logging.error("Файл не предоставлен")
+        logging.error("Файл не предоставлен в запросе! Ключи в request.files: " + str(list(request.files.keys())))
         return jsonify({'error': 'No file provided'}), 400
 
     file = request.files['file']
     source_system = request.form.get('source_system', 'Unknown')
-    logging.info(f"Получен файл: {file.filename}, источник: {source_system}")
+    logging.info(f"Получен файл: {file.filename}, размер: {file.content_length or 'unknown'}, тип: {file.content_type or 'unknown'}")
+    logging.info(f"Источник: {source_system}")
 
     if file.filename == '':
         logging.error("Пустое имя файла")
