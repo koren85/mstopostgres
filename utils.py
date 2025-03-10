@@ -5,6 +5,7 @@ import logging
 
 def process_excel_file(file, source_system):
     """Process uploaded Excel file and convert to database records"""
+    # Сначала попробуем прочитать с обычными заголовками
     df = pd.read_excel(file)
     
     required_columns = [
@@ -12,6 +13,11 @@ def process_excel_file(file, source_system):
         'MSSQL_SXCLASS_MAP', 'priznak'
     ]
     
+    # Если не найдены требуемые столбцы, попробуем использовать вторую строку как заголовки
+    if not all(col in df.columns for col in required_columns):
+        logging.info("Trying to read Excel with header in the second row")
+        df = pd.read_excel(file, header=1)
+        
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
