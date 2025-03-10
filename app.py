@@ -129,7 +129,6 @@ def upload_file():
 
     try:
         logging.info("Начинаем обработку файла...")
-        # batch_id и records теперь возвращаются из process_excel_file
         batch_id, processed_records = process_excel_file(file, source_system)
         logging.info(f"Обработка файла завершена. Batch ID: {batch_id}, записей: {len(processed_records)}")
 
@@ -151,11 +150,19 @@ def upload_file():
         analyze_discrepancies()
         logging.info("Анализ несоответствий завершен")
 
-        return jsonify({'success': True, 'message': f'Processed {len(processed_records)} records', 'batch_id': batch_id})
+        response = jsonify({
+            'success': True, 
+            'message': f'Processed {len(processed_records)} records', 
+            'batch_id': batch_id
+        })
+        response.headers['Content-Type'] = 'application/json'
+        return response
     except Exception as e:
         db.session.rollback()  # Откатываем транзакцию при ошибке
         logging.error(f"Ошибка при обработке файла: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        response = jsonify({'error': str(e)})
+        response.headers['Content-Type'] = 'application/json'
+        return response, 500
 
 @app.route('/analyze')
 def analyze():
