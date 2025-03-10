@@ -3,9 +3,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, скрипт upload.js инициализирован');
     
     const uploadForm = document.getElementById('uploadForm');
-    const fileInput = document.getElementById('fileInput');
+    const fileInput = document.getElementById('excelFile'); // Исправлено с fileInput на excelFile
     const sourceSystemInput = document.getElementById('sourceSystem');
-    const submitButton = document.getElementById('submitButton');
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const resultDiv = document.getElementById('uploadResult');
@@ -34,40 +33,50 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Показываем индикатор загрузки и скрываем результат
+            const formData = new FormData(uploadForm);
+            
+            // Отображаем индикатор загрузки
             showProgress();
             console.log('Индикатор загрузки показан');
+            
+            // Анимация прогресса загрузки
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += 20;
+                if (progress <= 100) {
+                    progressBar.style.width = `${progress}%`;
+                    progressBar.setAttribute('aria-valuenow', progress);
+                    console.log(`Прогресс анимации: ${progress}%`);
+                }
+            }, 1000);
+            
             console.log(`Файл выбран: ${file.name}, размер: ${file.size} байт, тип: ${file.type}`);
-            
-            // Создаем FormData и добавляем данные
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('source_system', sourceSystem);
-            
-            // Отправляем запрос
             console.log('Начинаем отправку запроса на /upload');
             
-            // Запускаем анимацию прогресса
-            startProgressAnimation();
-            
+            // Отправляем запрос
             fetch('/upload', {
                 method: 'POST',
                 body: formData
             })
             .then(response => {
                 console.log(`Получен ответ. Статус: ${response.status}`);
-                return response.json().then(data => ({status: response.status, data: data}));
+                return response.json().then(data => {
+                    return {
+                        status: response.status,
+                        data: data
+                    };
+                });
             })
             .then(result => {
                 console.log(`Данные ответа получены: ${JSON.stringify(result.data)}`);
                 console.log(`Обрабатываем результат: ${JSON.stringify(result)}`);
                 
                 // Останавливаем анимацию прогресса
-                stopProgressAnimation();
+                clearInterval(progressInterval);
                 
                 if (result.status === 200) {
-                    showResult(`Файл успешно загружен и обработан. Обработано ${result.data.message}`, 'success');
-                    // Опционально: очистить форму после успешной загрузки
+                    showResult(`Файл успешно загружен и обработан. ${result.data.message}`, 'success');
+                    // Очистить форму после успешной загрузки
                     uploadForm.reset();
                 } else {
                     showResult(`Ошибка при загрузке: ${result.data.error}`, 'danger');
@@ -76,7 +85,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(err => {
                 console.log(`Ошибка: ${err}`);
                 // Останавливаем анимацию прогресса
-                stopProgressAnimation();
+                clearInterval(progressInterval);
                 showResult(`Ошибка при загрузке: ${err}`, 'danger');
             });
         });
@@ -86,8 +95,13 @@ document.addEventListener('DOMContentLoaded', function() {
     function showProgress() {
         progressContainer.classList.remove('d-none');
         progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
         resultDiv.classList.add('d-none');
-        submitButton.disabled = true;
+        // Отключаем кнопку отправки, если она есть
+        const submitButton = document.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = true;
+        }
     }
     
     // Функция для отображения результата
@@ -96,37 +110,20 @@ document.addEventListener('DOMContentLoaded', function() {
         resultDiv.classList.remove('d-none');
         resultDiv.className = `alert alert-${type} mt-3`;
         resultDiv.textContent = message;
-        submitButton.disabled = false;
+        
+        // Включаем кнопку отправки, если она есть
+        const submitButton = document.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = false;
+        }
     }
     
-    // Переменная для хранения ID интервала анимации
-    let progressAnimationInterval = null;
-    
-    // Функция для запуска анимации прогресса
-    function startProgressAnimation() {
-        let progress = 0;
-        progressAnimationInterval = setInterval(() => {
-            // Увеличиваем прогресс, но не до 100% (максимум 90%)
-            if (progress < 90) {
-                progress += Math.random() * 5;
-                progress = Math.min(progress, 90);
-                progressBar.style.width = `${progress}%`;
-                console.log(`Прогресс анимации: ${Math.round(progress)}%`);
-            }
-        }, 300);
-    }
-    
-    // Функция для остановки анимации прогресса
+    // Функция для остановки анимации прогресса (для предотвращения возможных утечек памяти)
     function stopProgressAnimation() {
-        if (progressAnimationInterval) {
-            clearInterval(progressAnimationInterval);
-            progressAnimationInterval = null;
-            // Устанавливаем 100% по завершении
-            progressBar.style.width = '100%';
-            // Через секунду скрываем прогресс
-            setTimeout(() => {
-                progressContainer.classList.add('d-none');
-            }, 1000);
+        // Предполагается, что эта функция вызывается из обработчиков промисов
+        const submitButton = document.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = false;
         }
     }
 });
