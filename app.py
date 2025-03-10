@@ -1,8 +1,10 @@
 import os
 import logging
-from flask import Flask, render_template, request, jsonify
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify, url_for, redirect
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import func, or_
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -89,3 +91,62 @@ def get_classification_suggestion():
         data.get('mssql_sxclass_description')
     )
     return jsonify(suggestion)
+
+@app.route('/manage')
+def manage():
+    page = request.args.get('page', 1, type=int)
+    per_page = 20  # количество записей на странице
+
+    # Базовый запрос
+    query = MigrationClass.query
+
+    # Применяем фильтры из параметров запроса
+    source_system = request.args.get('source_system')
+    priznak = request.args.get('priznak')
+    class_name = request.args.get('class_name')
+    upload_date = request.args.get('upload_date')
+
+    if source_system:
+        query = query.filter(MigrationClass.source_system == source_system)
+    if priznak:
+        query = query.filter(MigrationClass.priznak.ilike(f'%{priznak}%'))
+    if class_name:
+        query = query.filter(MigrationClass.mssql_sxclass_name.ilike(f'%{class_name}%'))
+    if upload_date:
+        date_obj = datetime.strptime(upload_date, '%Y-%m-%d')
+        query = query.filter(func.date(MigrationClass.upload_date) == date_obj.date())
+
+    # Получаем общее количество записей для пагинации
+    total_items = query.count()
+    total_pages = (total_items + per_page - 1) // per_page
+
+    # Применяем пагинацию
+    items = query.order_by(MigrationClass.upload_date.desc())\
+                .offset((page - 1) * per_page)\
+                .limit(per_page)\
+                .all()
+
+    # Получаем список уникальных источников для фильтра
+    sources = db.session.query(MigrationClass.source_system)\
+                       .distinct()\
+                       .order_by(MigrationClass.source_system)\
+                       .all()
+    sources = [s[0] for s in sources]
+
+    return render_template('manage.html',
+                         items=items,
+                         sources=sources,
+                         page=page,
+                         total_pages=total_pages)
+
+@app.route('/api/delete/<int:item_id>', methods=['DELETE'])
+def delete_item(item_id):
+    try:
+        item = MigrationClass.query.get_or_404(item_id)
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error deleting item {item_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500

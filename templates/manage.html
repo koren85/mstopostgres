@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Управление данными миграции</h2>
+    
+    <!-- Фильтры -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="filterForm" class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Источник данных</label>
+                    <select class="form-select" name="source_system">
+                        <option value="">Все</option>
+                        {% for source in sources %}
+                        <option value="{{ source }}">{{ source }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Признак</label>
+                    <input type="text" class="form-control" name="priznak" placeholder="Поиск по признаку">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Название класса</label>
+                    <input type="text" class="form-control" name="class_name" placeholder="Поиск по названию">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Дата загрузки</label>
+                    <input type="date" class="form-control" name="upload_date">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Применить фильтры</button>
+                    <button type="reset" class="btn btn-secondary">Сбросить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Таблица данных -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>A_OUID</th>
+                            <th>Название класса</th>
+                            <th>Описание</th>
+                            <th>Признак</th>
+                            <th>Источник</th>
+                            <th>Дата загрузки</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>{{ item.id }}</td>
+                            <td>{{ item.a_ouid }}</td>
+                            <td>{{ item.mssql_sxclass_name }}</td>
+                            <td>{{ item.mssql_sxclass_description }}</td>
+                            <td>{{ item.priznak }}</td>
+                            <td>{{ item.source_system }}</td>
+                            <td>{{ item.upload_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <button class="btn btn-sm btn-danger delete-btn" 
+                                        data-id="{{ item.id }}"
+                                        data-bs-toggle="modal" 
+                                        data-bs-target="#deleteModal">
+                                    Удалить
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Пагинация -->
+            <nav>
+                <ul class="pagination justify-content-center">
+                    {% if page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('manage', page=page-1) }}">Предыдущая</a>
+                    </li>
+                    {% endif %}
+                    <li class="page-item disabled">
+                        <span class="page-link">Страница {{ page }} из {{ total_pages }}</span>
+                    </li>
+                    {% if page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('manage', page=page+1) }}">Следующая</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно подтверждения удаления -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить эту запись?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDelete">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let itemToDelete = null;
+
+    // Обработка кнопок удаления
+    document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            itemToDelete = this.dataset.id;
+        });
+    });
+
+    // Подтверждение удаления
+    document.getElementById('confirmDelete').addEventListener('click', function() {
+        if (itemToDelete) {
+            fetch(`/api/delete/${itemToDelete}`, {
+                method: 'DELETE',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Ошибка при удалении записи');
+                }
+            });
+        }
+    });
+
+    // Обработка формы фильтров
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const params = new URLSearchParams();
+        
+        for (const [key, value] of formData.entries()) {
+            if (value) {
+                params.append(key, value);
+            }
+        }
+        
+        window.location.href = `${window.location.pathname}?${params.toString()}`;
+    });
+});
+</script>
+{% endblock %}
