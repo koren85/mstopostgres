@@ -378,6 +378,10 @@ def batches():
     try:
         # Получаем уникальные batch_id
         batch_ids = db.session.query(
+            MigrationClass.batch_id,
+            MigrationClass.file_name,
+            func.min(MigrationClass.upload_date).label('upload_date')
+
 
 @app.route('/run_classification/<batch_id>', methods=['POST'])
 def run_classification(batch_id):
@@ -410,9 +414,6 @@ def run_classification(batch_id):
         return jsonify({'error': str(e)}), 500
 
 
-            MigrationClass.batch_id,
-            MigrationClass.file_name,
-            func.min(MigrationClass.upload_date).label('upload_date')
         ).group_by(
             MigrationClass.batch_id,
             MigrationClass.file_name
