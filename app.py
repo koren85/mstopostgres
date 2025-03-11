@@ -443,14 +443,90 @@ def analysis():
     """Страница анализа новых данных"""
     page = request.args.get('page', 1, type=int)
     per_page = 20
+    batch_id = request.args.get('batch_id')
 
-    query = AnalysisData.query.order_by(AnalysisData.upload_date.desc())
+    # Базовый запрос
+    base_query = AnalysisData.query
+    
+    # Фильтр по batch_id, если указан
+    if batch_id:
+        base_query = base_query.filter(AnalysisData.batch_id == batch_id)
+        
+    # Запрос с сортировкой
+    query = base_query.order_by(AnalysisData.upload_date.desc())
+    
+    # Пагинация
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
+    # Получаем информацию о всех батчах для фильтра
+    batch_options = db.session.query(
+        AnalysisData.batch_id,
+        AnalysisData.file_name,
+        func.min(AnalysisData.upload_date).label('upload_date')
+    ).group_by(
+        AnalysisData.batch_id,
+        AnalysisData.file_name
+    ).order_by(
+        func.min(AnalysisData.upload_date).desc()
+    ).all()
+    
+    # Преобразуем результаты в список словарей для шаблона
+    batch_list = [
+        {
+            'id': b.batch_id,
+            'file_name': b.file_name
+        } for b in batch_options
+    ]
+    
+    # Получаем информацию о статусе батчей
+    batches = []
+    for b in batch_options:
+        # Количество записей в батче
+        total_records = AnalysisData.query.filter_by(batch_id=b.batch_id).count()
+        
+        # Количество проанализированных записей
+        analyzed_records = AnalysisData.query.filter_by(
+            batch_id=b.batch_id,
+            analysis_state='analyzed'
+        ).count()
+        
+        # Количество записей с конфликтами
+        conflict_records = AnalysisData.query.filter_by(
+            batch_id=b.batch_id,
+            analysis_state='conflict'
+        ).count()
+        
+        # Рассчитываем прогресс
+        if total_records > 0:
+            progress = int((analyzed_records + conflict_records) / total_records * 100)
+        else:
+            progress = 0
+            
+        # Определяем цвет прогресса
+        if progress == 100:
+            progress_color = "success"
+        elif progress > 0:
+            progress_color = "info"
+        else:
+            progress_color = "warning"
+            
+        batches.append({
+            'batch_id': b.batch_id,
+            'file_name': b.file_name,
+            'upload_date': b.upload_date,
+            'records_count': total_records,
+            'source_system': AnalysisData.query.filter_by(batch_id=b.batch_id).first().source_system,
+            'progress': progress,
+            'progress_color': progress_color
+        })
+
     return render_template('analysis.html',
-                         items=pagination.items,
-                         page=page,
-                         pages=pagination.pages)
+                           items=pagination.items,
+                           page=page,
+                           pages=pagination.pages,
+                           batch_id=batch_id,
+                           batch_options=batch_list,
+                           batches=batches)
 
 @app.route('/upload_analysis', methods=['POST'])
 def upload_analysis():
@@ -602,6 +678,26 @@ def analyze_item(item_id):
     except Exception as e:
         db.session.rollback()
         logging.error(f"Ошибка при анализе записи {item_id}: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/analysis_batch/<batch_id>', methods=['DELETE'])
+def delete_analysis_batch(batch_id):
+    """Удаление загруженного батча данных для анализа"""
+    try:
+        # Проверяем, существует ли батч
+        count = AnalysisData.query.filter_by(batch_id=batch_id).count()
+        if count == 0:
+            return jsonify({'success': False, 'error': 'Батч не найден'}), 404
+            
+        # Удаляем все записи с указанным batch_id
+        AnalysisData.query.filter_by(batch_id=batch_id).delete()
+        db.session.commit()
+        
+        logging.info(f"Успешно удален батч анализа {batch_id}, удалено {count} записей")
+        return jsonify({'success': True, 'message': f'Удалено {count} записей'})
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Ошибка при удалении батча анализа {batch_id}: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
