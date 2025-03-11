@@ -378,22 +378,7 @@ def batches():
     try:
         # Получаем уникальные batch_id
         batch_ids = db.session.query(
-            MigrationClass.batch_id,
-            MigrationClass.file_name,
-            func.min(MigrationClass.upload_date).label('upload_date')
-        ).group_by(
-            MigrationClass.batch_id,
-            MigrationClass.file_name
-        ).order_by(
-            func.min(MigrationClass.upload_date).desc()
-        ).all()
 
-        # Собираем информацию по каждой загрузке
-        batches_info = []
-        for record in batch_ids:
-            batch_id = record[0]
-
-# Пример кода, где происходит классификация записей
 @app.route('/run_classification/<batch_id>', methods=['POST'])
 def run_classification(batch_id):
     try:
@@ -424,6 +409,21 @@ def run_classification(batch_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+
+            MigrationClass.batch_id,
+            MigrationClass.file_name,
+            func.min(MigrationClass.upload_date).label('upload_date')
+        ).group_by(
+            MigrationClass.batch_id,
+            MigrationClass.file_name
+        ).order_by(
+            func.min(MigrationClass.upload_date).desc()
+        ).all()
+
+        # Собираем информацию по каждой загрузке
+        batches_info = []
+        for record in batch_ids:
+            batch_id = record[0]
             file_name = record[1] if record[1] else "Неизвестный файл"
             upload_date = record[2]
             
