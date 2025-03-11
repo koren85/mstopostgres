@@ -470,21 +470,71 @@ def upload_analysis():
         return jsonify({'success': False, 'error': 'Поддерживаются только файлы Excel (.xlsx)'}), 400
 
     try:
-        # Используем существующую функцию для обработки Excel
-        batch_id, processed_records = process_excel_file(file, source_system)
-
+        # Чтение данных напрямую из Excel
+        logging.info(f"Начинаем обработку файла для анализа: {file.filename}")
+        df = pd.read_excel(file)
+        
+        # Создаем batch_id для группировки записей
+        batch_id = str(uuid.uuid4())
+        processed_records = []
+        
+        # Преобразуем DataFrame в список словарей
+        for _, row in df.iterrows():
+            # Преобразуем строку DataFrame в словарь и обрабатываем пустые значения
+            record = row.to_dict()
+            
+            # Нормализуем названия столбцов (часто они могут быть с пробелами или в другом регистре)
+            normalized_record = {}
+            for key, value in record.items():
+                # Проверяем, является ли значение NaN или None
+                if pd.isna(value):
+                    normalized_value = None
+                else:
+                    normalized_value = value
+                
+                # Нормализуем ключ: убираем пробелы, делаем нижний регистр
+                normalized_key = key.strip().lower().replace(' ', '_')
+                normalized_record[normalized_key] = normalized_value
+            
+            # Добавляем дополнительные поля
+            normalized_record['batch_id'] = batch_id
+            normalized_record['file_name'] = file.filename
+            normalized_record['source_system'] = source_system
+            normalized_record['upload_date'] = datetime.utcnow()
+            normalized_record['analysis_state'] = 'pending'
+            normalized_record['matched_historical_data'] = []
+            
+            processed_records.append(normalized_record)
+        
+        logging.info(f"Обработано {len(processed_records)} записей из файла")
+        
         # Сохраняем записи в таблицу analysis_data
         for record in processed_records:
-            # Создаем копию записи и удаляем поля, которые могут вызвать конфликт
-            record_copy = record.copy()
-            # Устанавливаем значения по умолчанию для полей, которые мы будем устанавливать отдельно
-            record_copy["analysis_state"] = "pending"
-            record_copy["matched_historical_data"] = None
+            # Создаем запись анализа, используя только те поля, которые есть в модели
+            analysis_record = AnalysisData()
             
-            analysis_record = AnalysisData(**record_copy)
+            # Перебираем поля модели и заполняем их из record, если они есть
+            for column in AnalysisData.__table__.columns.keys():
+                if column in record:
+                    setattr(analysis_record, column, record[column])
+                elif 'mssql_' + column in record:
+                    # Для совместимости с разными наименованиями
+                    setattr(analysis_record, column, record['mssql_' + column])
+            
+            # Устанавливаем обязательные поля
+            analysis_record.batch_id = batch_id
+            analysis_record.file_name = file.filename
+            analysis_record.source_system = source_system
+            analysis_record.upload_date = datetime.utcnow()
+            analysis_record.analysis_state = 'pending'
+            analysis_record.matched_historical_data = []
+            
             db.session.add(analysis_record)
-
+            
+        logging.info(f"Записи подготовлены для сохранения в базу данных")
         db.session.commit()
+        logging.info(f"Все записи успешно сохранены в базу данных")
+        
         return jsonify({
             'success': True,
             'message': f'Обработано {len(processed_records)} записей',
