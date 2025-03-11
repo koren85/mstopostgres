@@ -629,7 +629,8 @@ def upload_analysis():
                         break
                 else:
                     # Для числовых индексов преобразуем в строку
-                    if str(excel_column).lower() in possible_excel_columns:
+                    excel_column_str = str(excel_column)
+                    if excel_column_str.lower() in possible_excel_columns:
                         excel_column_map[model_field] = excel_column
                         found = True
                         break
@@ -642,7 +643,7 @@ def upload_analysis():
                         excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
                     else:
                         # Для числовых индексов преобразуем в строку
-                        excel_column_normalized = str(excel_column).lower()
+                        excel_column_normalized = str(excel_column)
                         
                     if excel_column_normalized in possible_excel_columns:
                         excel_column_map[model_field] = excel_column
