@@ -583,52 +583,53 @@ def upload_analysis():
         logging.info(f"Начинаем обработку файла для анализа: {file.filename}")
         df = pd.read_excel(file)
         
+        # Выводим информацию о колонках для отладки
+        logging.info(f"Колонки в Excel файле: {df.columns.tolist()}")
+        
         # Создаем batch_id для группировки записей
         batch_id = str(uuid.uuid4())
+        
+        # Предполагаемое отображение колонок Excel на поля модели
+        column_mapping = {
+            'a_ouid': ['a_ouid', 'a-ouid', 'ouid'],
+            'mssql_sxclass_description': ['mssql_sxclass_description', 'mssql sxclass description', 'description'],
+            'mssql_sxclass_name': ['mssql_sxclass_name', 'mssql sxclass name', 'name', 'class_name'],
+            'mssql_sxclass_map': ['mssql_sxclass_map', 'mssql sxclass map', 'map'],
+            'system_class': ['system_class', 'systemclass'],
+            'is_link_table': ['is_link_table', 'islinktable', 'link_table'],
+            'parent_class': ['parent_class', 'parentclass'],
+            'child_classes': ['child_classes', 'childclasses'],
+            'child_count': ['child_count', 'childcount'],
+            'created_date': ['created_date', 'createddate'],
+            'created_by': ['created_by', 'createdby'],
+            'modified_date': ['modified_date', 'modifieddate'],
+            'modified_by': ['modified_by', 'modifiedby'],
+            'folder_paths': ['folder_paths', 'folderpaths'],
+            'object_count': ['object_count', 'objectcount'],
+            'last_object_created': ['last_object_created', 'lastobjectcreated'],
+            'last_object_modified': ['last_object_modified', 'lastobjectmodified'],
+            'attribute_count': ['attribute_count', 'attributecount'],
+            'category': ['category'],
+            'migration_flag': ['migration_flag', 'migrationflag'],
+            'rule_info': ['rule_info', 'ruleinfo']
+        }
+        
+        # Находим фактические названия колонок в Excel-файле и сопоставляем их с полями модели
+        excel_column_map = {}
+        for model_field, possible_excel_columns in column_mapping.items():
+            for excel_column in df.columns:
+                excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
+                if excel_column_normalized in possible_excel_columns:
+                    excel_column_map[model_field] = excel_column
+                    break
+        
+        logging.info(f"Сопоставление колонок Excel с полями модели: {excel_column_map}")
+        
+        # Обрабатываем каждую строку Excel
         processed_records = []
-        
-        # Преобразуем DataFrame в список словарей
-        for _, row in df.iterrows():
-            # Преобразуем строку DataFrame в словарь и обрабатываем пустые значения
-            record = row.to_dict()
-            
-            # Нормализуем названия столбцов (часто они могут быть с пробелами или в другом регистре)
-            normalized_record = {}
-            for key, value in record.items():
-                # Проверяем, является ли значение NaN или None
-                if pd.isna(value):
-                    normalized_value = None
-                else:
-                    normalized_value = value
-                
-                # Нормализуем ключ: убираем пробелы, делаем нижний регистр
-                normalized_key = key.strip().lower().replace(' ', '_')
-                normalized_record[normalized_key] = normalized_value
-            
-            # Добавляем дополнительные поля
-            normalized_record['batch_id'] = batch_id
-            normalized_record['file_name'] = file.filename
-            normalized_record['source_system'] = source_system
-            normalized_record['upload_date'] = datetime.utcnow()
-            normalized_record['analysis_state'] = 'pending'
-            normalized_record['matched_historical_data'] = []
-            
-            processed_records.append(normalized_record)
-        
-        logging.info(f"Обработано {len(processed_records)} записей из файла")
-        
-        # Сохраняем записи в таблицу analysis_data
-        for record in processed_records:
-            # Создаем запись анализа, используя только те поля, которые есть в модели
+        for index, row in df.iterrows():
+            # Создаем запись анализа
             analysis_record = AnalysisData()
-            
-            # Перебираем поля модели и заполняем их из record, если они есть
-            for column in AnalysisData.__table__.columns.keys():
-                if column in record:
-                    setattr(analysis_record, column, record[column])
-                elif 'mssql_' + column in record:
-                    # Для совместимости с разными наименованиями
-                    setattr(analysis_record, column, record['mssql_' + column])
             
             # Устанавливаем обязательные поля
             analysis_record.batch_id = batch_id
@@ -638,9 +639,22 @@ def upload_analysis():
             analysis_record.analysis_state = 'pending'
             analysis_record.matched_historical_data = []
             
-            db.session.add(analysis_record)
+            # Заполняем поля из Excel на основе сопоставления
+            for model_field, excel_column in excel_column_map.items():
+                value = row[excel_column]
+                # Проверяем, является ли значение NaN 
+                if pd.isna(value):
+                    value = None
+                setattr(analysis_record, model_field, value)
             
-        logging.info(f"Записи подготовлены для сохранения в базу данных")
+            # Для отладки: выводим значения ключевых полей
+            logging.info(f"Строка {index}: name={analysis_record.mssql_sxclass_name}, "
+                        f"description={analysis_record.mssql_sxclass_description}")
+            
+            db.session.add(analysis_record)
+            processed_records.append(analysis_record)
+        
+        logging.info(f"Обработано {len(processed_records)} записей из файла")
         db.session.commit()
         logging.info(f"Все записи успешно сохранены в базу данных")
         
