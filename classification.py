@@ -9,11 +9,22 @@ def create_batch_id():
     """Generate a unique batch ID for grouping uploaded records"""
     return str(uuid.uuid4())
 
-def classify_record(class_name, description, batch_id=None):
+def classify_record(class_name, description, batch_id=None, existing_priznak=None):
     """
     Classify a record based on historical data and rules
     Returns: dict with classification and confidence score
+    
+    Если existing_priznak не None, просто возвращаем его без классификации
     """
+    # Если у записи уже есть priznak, просто возвращаем его
+    if existing_priznak is not None:
+        logging.info(f"[КЛАССИФИКАЦИЯ] Пропускаем классификацию, использую существующий priznak='{existing_priznak}'")
+        return {
+            'priznak': existing_priznak,
+            'confidence': 1.0,  # Полная уверенность для существующих значений
+            'method': 'manual'  # Считаем, что существующие значения были заданы вручную
+        }
+        
     logging.info(f"[КЛАССИФИКАЦИЯ] Начинаем классификацию: class_name='{class_name}', description='{description}'")
 
     try:

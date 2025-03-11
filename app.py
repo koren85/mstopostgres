@@ -392,6 +392,38 @@ def batches():
         batches_info = []
         for record in batch_ids:
             batch_id = record[0]
+
+# Пример кода, где происходит классификация записей
+@app.route('/run_classification/<batch_id>', methods=['POST'])
+def run_classification(batch_id):
+    try:
+        # Получаем все записи из указанного batch_id
+        records = MigrationClass.query.filter_by(batch_id=batch_id).all()
+        
+        for record in records:
+            # Если priznak уже есть, пропускаем классификацию
+            if record.priznak:
+                continue
+                
+            # Классифицируем только записи с пустым priznak
+            result = classify_record(
+                record.mssql_sxclass_name, 
+                record.mssql_sxclass_description,
+                batch_id,
+                existing_priznak=record.priznak
+            )
+            
+            # Обновляем запись
+            record.priznak = result['priznak']
+            record.confidence_score = result['confidence']
+            record.classified_by = result['method']
+            
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
             file_name = record[1] if record[1] else "Неизвестный файл"
             upload_date = record[2]
             

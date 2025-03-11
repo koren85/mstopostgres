@@ -20,6 +20,11 @@ def process_excel_file(file, source_system):
         df = pd.read_excel(file)
         logging.info(f"Успешно прочитан Excel файл, строк: {len(df)}")
 
+        # Проверяем, есть ли в Excel колонка priznak
+        has_priznak_column = 'PRIZNAK' in df.columns
+        if has_priznak_column:
+            logging.info("В Excel файле обнаружена колонка PRIZNAK, будем сохранять её значения")
+
         # Преобразуем DataFrame в список словарей для добавления в БД
         records = []
 
@@ -31,6 +36,7 @@ def process_excel_file(file, source_system):
                 'mssql_sxclass_description': row.get('MSSQL_SXCLASS_DESCRIPTION'),
                 'mssql_sxclass_name': row.get('MSSQL_SXCLASS_NAME'),
                 'mssql_sxclass_map': row.get('MSSQL_SXCLASS_MAP'),
+                'priznak': row.get('PRIZNAK') if has_priznak_column else None,  # Сохраняем значение, если есть
                 'system_class': row.get('SYSTEM_CLASS'),
                 'is_link_table': row.get('IS_LINK_TABLE'),
                 'parent_class': row.get('PARENT_CLASS'),
@@ -51,7 +57,7 @@ def process_excel_file(file, source_system):
                 'source_system': source_system,
                 'upload_date': datetime.utcnow(),
                 'confidence_score': 0,  # Изначально уверенность 0
-                'classified_by': None  # Изначально не классифицирован
+                'classified_by': 'manual' if has_priznak_column and pd.notna(row.get('PRIZNAK')) else None  # Отмечаем записи с уже заполненным priznak как классифицированные вручную
             }
             records.append(record)
 
