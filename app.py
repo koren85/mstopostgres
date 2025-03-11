@@ -579,13 +579,24 @@ def upload_analysis():
         return jsonify({'success': False, 'error': 'Поддерживаются только файлы Excel (.xlsx)'}), 400
 
     try:
-        # Чтение данных напрямую из Excel (заголовки на 2-й строке, данные с 3-й)
-        # Указываем dtype=str, чтобы все данные загружались как строки
+        # Чтение данных напрямую из Excel с принудительным преобразованием в строки
         logging.info(f"Начинаем обработку файла для анализа: {file.filename}")
-        df = pd.read_excel(file, header=1, skiprows=2, dtype=str)  # header=1 означает, что заголовки на 2-й строке (индекс 1), skiprows=2 пропускает первые 2 строки
         
-        # Выводим информацию о колонках для отладки
-        logging.info(f"Колонки в Excel файле: {df.columns.tolist()}")
+        # Сначала читаем без указания dtype для определения структуры
+        df_structure = pd.read_excel(file, header=1, skiprows=2, nrows=0)
+        logging.info(f"Структура Excel файла: {df_structure.columns.tolist()}")
+        
+        # Затем читаем с явным указанием типа данных str для всех колонок
+        dtype_dict = {col: str for col in df_structure.columns}
+        df = pd.read_excel(file, header=1, skiprows=2, dtype=dtype_dict)
+        
+        # Преобразуем все NaN в None для корректной записи в БД
+        df = df.astype(object).where(pd.notnull(df), None)
+        
+        # Выводим первые несколько строк для отладки
+        logging.info("Пример данных из Excel:")
+        for i, row in df.head(3).iterrows():
+            logging.info(f"Строка {i}: {dict(row)}")
         
         # Создаем batch_id для группировки записей
         batch_id = str(uuid.uuid4())
@@ -669,63 +680,143 @@ def upload_analysis():
                     excel_column_map['mssql_sxclass_description'] = col
                     logging.info(f"Используем '{col}' как mssql_sxclass_description")
         
+        # Отображение колонок Excel в поля модели (упрощенное)
+        direct_column_mapping = {}
+        
+        # Прямое сопоставление по точному имени колонки
+        for col in df.columns:
+            col_str = str(col).strip().lower()
+            if 'name' in col_str or 'класс' in col_str or 'class' in col_str:
+                direct_column_mapping['mssql_sxclass_name'] = col
+                logging.info(f"Найдена колонка для имени класса: {col}")
+            elif 'desc' in col_str or 'опис' in col_str:
+                direct_column_mapping['mssql_sxclass_description'] = col
+                logging.info(f"Найдена колонка для описания: {col}")
+            elif 'ouid' in col_str:
+                direct_column_mapping['a_ouid'] = col
+                logging.info(f"Найдена колонка для a_ouid: {col}")
+            elif 'map' in col_str:
+                direct_column_mapping['mssql_sxclass_map'] = col
+            elif 'system' in col_str and 'class' in col_str:
+                direct_column_mapping['system_class'] = col
+            elif 'link' in col_str and 'table' in col_str:
+                direct_column_mapping['is_link_table'] = col
+            elif 'parent' in col_str:
+                direct_column_mapping['parent_class'] = col
+            elif 'child' in col_str and 'class' in col_str:
+                direct_column_mapping['child_classes'] = col
+            elif 'child' in col_str and 'count' in col_str:
+                direct_column_mapping['child_count'] = col
+            elif 'created' in col_str and 'date' in col_str:
+                direct_column_mapping['created_date'] = col
+            elif 'created' in col_str and 'by' in col_str:
+                direct_column_mapping['created_by'] = col
+            elif 'modif' in col_str and 'date' in col_str:
+                direct_column_mapping['modified_date'] = col
+            elif 'modif' in col_str and 'by' in col_str:
+                direct_column_mapping['modified_by'] = col
+            elif 'folder' in col_str or 'path' in col_str:
+                direct_column_mapping['folder_paths'] = col
+            elif 'object' in col_str and 'count' in col_str:
+                direct_column_mapping['object_count'] = col
+            elif 'last' in col_str and 'object' in col_str and 'created' in col_str:
+                direct_column_mapping['last_object_created'] = col
+            elif 'last' in col_str and 'object' in col_str and 'modif' in col_str:
+                direct_column_mapping['last_object_modified'] = col
+            elif 'attribute' in col_str and 'count' in col_str:
+                direct_column_mapping['attribute_count'] = col
+            elif 'category' in col_str:
+                direct_column_mapping['category'] = col
+            elif 'migration' in col_str and 'flag' in col_str:
+                direct_column_mapping['migration_flag'] = col
+            elif 'rule' in col_str and 'info' in col_str:
+                direct_column_mapping['rule_info'] = col
+            elif 'priznak' in col_str:
+                direct_column_mapping['priznak'] = col
+        
+        logging.info(f"Прямое сопоставление колонок: {direct_column_mapping}")
+        
+        # Если ключевые колонки не найдены, пробуем использовать порядковые номера
+        if 'mssql_sxclass_name' not in direct_column_mapping and len(df.columns) >= 3:
+            direct_column_mapping['mssql_sxclass_name'] = df.columns[2]  # Обычно 3-я колонка
+            logging.info(f"Используем колонку {df.columns[2]} как mssql_sxclass_name")
+            
+        if 'mssql_sxclass_description' not in direct_column_mapping and len(df.columns) >= 2:
+            direct_column_mapping['mssql_sxclass_description'] = df.columns[1]  # Обычно 2-я колонка
+            logging.info(f"Используем колонку {df.columns[1]} как mssql_sxclass_description")
+        
         # Обрабатываем каждую строку Excel
         processed_records = []
         for index, row in df.iterrows():
             # Создаем запись анализа
-            analysis_record = AnalysisData()
+            analysis_record = {}
             
             # Устанавливаем обязательные поля
-            analysis_record.batch_id = batch_id
-            analysis_record.file_name = file.filename
-            analysis_record.source_system = source_system
-            analysis_record.upload_date = datetime.utcnow()
-            analysis_record.analysis_state = 'pending'
-            analysis_record.matched_historical_data = []
+            analysis_record['batch_id'] = batch_id
+            analysis_record['file_name'] = file.filename
+            analysis_record['source_system'] = source_system
+            analysis_record['upload_date'] = datetime.utcnow()
+            analysis_record['analysis_state'] = 'pending'
+            analysis_record['matched_historical_data'] = []
             
             # Заполняем поля из Excel на основе сопоставления
-            for model_field, excel_column in excel_column_map.items():
+            for model_field, excel_column in direct_column_mapping.items():
                 try:
-                    value = row[excel_column]
-                    # Проверяем, является ли значение NaN 
-                    if pd.isna(value):
+                    # Извлекаем значение и преобразуем к строке, если оно не None
+                    raw_value = row[excel_column]
+                    
+                    # Пропускаем None и NaN
+                    if pd.isna(raw_value) or raw_value is None:
                         value = None
-                    elif model_field in ['a_ouid', 'child_count', 'object_count', 'attribute_count']:
-                        # Числовые поля
-                        if value is not None:
-                            try:
-                                # Строка может содержать десятичную точку, поэтому сначала преобразуем к float
-                                # а затем к int, если необходимо
-                                value_str = str(value).strip()
-                                if value_str:
-                                    value = int(float(value_str)) if '.' not in value_str else int(float(value_str))
-                                else:
+                    else:
+                        # Преобразуем к строке все значения для безопасности
+                        value = str(raw_value)
+                        
+                        # Преобразуем к нужному типу в зависимости от поля
+                        if model_field in ['a_ouid', 'child_count', 'object_count', 'attribute_count']:
+                            # Числовые поля
+                            if value.strip():
+                                try:
+                                    # Очищаем от нечисловых символов
+                                    clean_value = ''.join([c for c in value if c.isdigit() or c == '.'])
+                                    if clean_value:
+                                        value = int(float(clean_value))
+                                    else:
+                                        value = None
+                                except (ValueError, TypeError):
                                     value = None
-                            except (ValueError, TypeError):
+                            else:
                                 value = None
-                    elif model_field in ['system_class', 'is_link_table']:
-                        # Булевы поля - сначала преобразуем к строке
-                        value_str = str(value).lower() if value is not None else ''
-                        value = value_str in ['true', 'yes', 'да', '1', 'истина', 'true']
-                    elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
-                        # Даты
-                        if value is not None and not isinstance(value, datetime):
+                        elif model_field in ['system_class', 'is_link_table']:
+                            # Булевы поля
+                            value = value.lower() in ['true', 'yes', 'да', '1', 'истина', 'true']
+                        elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
+                            # Даты
                             try:
                                 value = pd.to_datetime(value)
                             except:
                                 value = None
-                                
-                    # Устанавливаем значение атрибута
-                    setattr(analysis_record, model_field, value)
+                    
+                    # Добавляем значение в запись
+                    analysis_record[model_field] = value
+                    
                 except Exception as field_error:
-                    logging.warning(f"Ошибка при обработке поля {model_field}: {str(field_error)}")
+                    logging.warning(f"Ошибка при обработке поля {model_field} (колонка {excel_column}): {str(field_error)}")
             
-            # Для отладки: выводим значения ключевых полей
-            logging.info(f"Строка {index}: name={getattr(analysis_record, 'mssql_sxclass_name', None)}, "
-                        f"description={getattr(analysis_record, 'mssql_sxclass_description', None)}")
+            # Выводим результат для отладки
+            logging.info(f"Обработана строка {index}:")
+            logging.info(f"  name={analysis_record.get('mssql_sxclass_name')}")
+            logging.info(f"  description={analysis_record.get('mssql_sxclass_description')}")
             
-            db.session.add(analysis_record)
-            processed_records.append(analysis_record)
+            # Создаем объект AnalysisData и добавляем в сессию
+            record_obj = AnalysisData(**analysis_record)
+            db.session.add(record_obj)
+            processed_records.append(record_obj)
+            
+            # Периодически коммитим для больших файлов
+            if index > 0 and index % 500 == 0:
+                logging.info(f"Промежуточное сохранение: обработано {index} строк")
+                db.session.commit()
         
         logging.info(f"Обработано {len(processed_records)} записей из файла")
         db.session.commit()
