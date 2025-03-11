@@ -15,9 +15,9 @@ def process_excel_file(file, source_system):
     batch_id = str(uuid.uuid4())
     logging.info(f"Создан batch_id: {batch_id} для файла {file.filename}")
 
-    # Читаем Excel
+    # Читаем Excel (заголовки на 2-й строке, данные с 3-й)
     try:
-        df = pd.read_excel(file)
+        df = pd.read_excel(file, header=1, skiprows=2)  # header=1 означает, что заголовки на 2-й строке (индекс 1), skiprows=2 пропускает первые 2 строки
         logging.info(f"Успешно прочитан Excel файл, строк: {len(df)}")
 
         # Проверяем, есть ли в Excel колонка priznak

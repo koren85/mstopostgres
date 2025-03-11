@@ -579,9 +579,9 @@ def upload_analysis():
         return jsonify({'success': False, 'error': 'Поддерживаются только файлы Excel (.xlsx)'}), 400
 
     try:
-        # Чтение данных напрямую из Excel
+        # Чтение данных напрямую из Excel (заголовки на 2-й строке, данные с 3-й)
         logging.info(f"Начинаем обработку файла для анализа: {file.filename}")
-        df = pd.read_excel(file)
+        df = pd.read_excel(file, header=1, skiprows=2)  # header=1 означает, что заголовки на 2-й строке (индекс 1), skiprows=2 пропускает первые 2 строки
         
         # Выводим информацию о колонках для отладки
         logging.info(f"Колонки в Excel файле: {df.columns.tolist()}")
