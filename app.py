@@ -580,8 +580,9 @@ def upload_analysis():
 
     try:
         # Чтение данных напрямую из Excel (заголовки на 2-й строке, данные с 3-й)
+        # Указываем dtype=str, чтобы все данные загружались как строки
         logging.info(f"Начинаем обработку файла для анализа: {file.filename}")
-        df = pd.read_excel(file, header=1, skiprows=2)  # header=1 означает, что заголовки на 2-й строке (индекс 1), skiprows=2 пропускает первые 2 строки
+        df = pd.read_excel(file, header=1, skiprows=2, dtype=str)  # header=1 означает, что заголовки на 2-й строке (индекс 1), skiprows=2 пропускает первые 2 строки
         
         # Выводим информацию о колонках для отладки
         logging.info(f"Колонки в Excel файле: {df.columns.tolist()}")
@@ -659,11 +660,12 @@ def upload_analysis():
             
             # Пробуем найти ближайшие совпадения для ключевых колонок
             for col in df.columns:
-                col_lower = col.lower()
-                if 'name' in col_lower or 'класс' in col_lower or 'class' in col_lower:
+                # Преобразуем любые значения в строку перед использованием lower()
+                col_str = str(col).lower()
+                if 'name' in col_str or 'класс' in col_str or 'class' in col_str:
                     excel_column_map['mssql_sxclass_name'] = col
                     logging.info(f"Используем '{col}' как mssql_sxclass_name")
-                elif 'desc' in col_lower or 'опис' in col_lower:
+                elif 'desc' in col_str or 'опис' in col_str:
                     excel_column_map['mssql_sxclass_description'] = col
                     logging.info(f"Используем '{col}' как mssql_sxclass_description")
         
@@ -692,13 +694,19 @@ def upload_analysis():
                         # Числовые поля
                         if value is not None:
                             try:
-                                value = int(value)
+                                # Строка может содержать десятичную точку, поэтому сначала преобразуем к float
+                                # а затем к int, если необходимо
+                                value_str = str(value).strip()
+                                if value_str:
+                                    value = int(float(value_str)) if '.' not in value_str else int(float(value_str))
+                                else:
+                                    value = None
                             except (ValueError, TypeError):
                                 value = None
                     elif model_field in ['system_class', 'is_link_table']:
-                        # Булевы поля
-                        if isinstance(value, str):
-                            value = value.lower() in ['true', 'yes', 'да', '1', 'истина']
+                        # Булевы поля - сначала преобразуем к строке
+                        value_str = str(value).lower() if value is not None else ''
+                        value = value_str in ['true', 'yes', 'да', '1', 'истина', 'true']
                     elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
                         # Даты
                         if value is not None and not isinstance(value, datetime):
