@@ -621,15 +621,29 @@ def upload_analysis():
             found = False
             # Сначала ищем точное совпадение
             for excel_column in df.columns:
-                if excel_column.strip().lower() in possible_excel_columns:
-                    excel_column_map[model_field] = excel_column
-                    found = True
-                    break
+                # Проверяем тип данных перед использованием strip()
+                if isinstance(excel_column, str):
+                    if excel_column.strip().lower() in possible_excel_columns:
+                        excel_column_map[model_field] = excel_column
+                        found = True
+                        break
+                else:
+                    # Для числовых индексов преобразуем в строку
+                    if str(excel_column).lower() in possible_excel_columns:
+                        excel_column_map[model_field] = excel_column
+                        found = True
+                        break
             
             # Если не нашли точное совпадение, ищем по нормализованному имени
             if not found:
                 for excel_column in df.columns:
-                    excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
+                    # Обрабатываем разные типы данных
+                    if isinstance(excel_column, str):
+                        excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
+                    else:
+                        # Для числовых индексов преобразуем в строку
+                        excel_column_normalized = str(excel_column).lower()
+                        
                     if excel_column_normalized in possible_excel_columns:
                         excel_column_map[model_field] = excel_column
                         found = True
