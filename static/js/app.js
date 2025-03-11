@@ -1,3 +1,4 @@
+
 document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('uploadForm');
     if (uploadForm) {
@@ -48,13 +49,22 @@ function handleFileUpload(e) {
         setTimeout(() => {
             progressBar.classList.add('d-none');
             resultDiv.classList.remove('d-none');
-
-            if (data.error) {
-                resultDiv.className = 'alert alert-danger mt-3';
-                resultDiv.textContent = `Ошибка: ${data.error}`;
+            
+            if (data.success) {
+                resultDiv.className = 'alert alert-success';
+                resultDiv.textContent = `Успешно! ${data.message}`;
+                if (data.batch_id) {
+                    // Добавим кнопку для перехода к загрузке
+                    const batchLink = document.createElement('a');
+                    batchLink.href = '/batches';
+                    batchLink.textContent = 'Перейти к загрузкам';
+                    batchLink.className = 'btn btn-primary ml-2';
+                    resultDiv.appendChild(document.createElement('br'));
+                    resultDiv.appendChild(batchLink);
+                }
             } else {
-                resultDiv.className = 'alert alert-success mt-3';
-                resultDiv.textContent = data.message;
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.textContent = `Ошибка: ${data.error || 'Неизвестная ошибка'}`;
             }
         }, 500);
     })
@@ -62,10 +72,11 @@ function handleFileUpload(e) {
         clearInterval(progressInterval);
         progressBar.classList.add('d-none');
         resultDiv.classList.remove('d-none');
-        resultDiv.className = 'alert alert-danger mt-3';
-        let errorMessage = error.message;
-        if (error instanceof TypeError && error.message === "Ожидался JSON в ответе!") {
-            errorMessage = "Сервер вернул неправильный формат ответа. Пожалуйста, попробуйте позже.";
+        resultDiv.className = 'alert alert-danger';
+        
+        let errorMessage = error.message || 'Неизвестная ошибка';
+        if (errorMessage.includes('JSON')) {
+            errorMessage = 'Сервер вернул неправильный формат данных. Возможно, произошла внутренняя ошибка.';
         }
         resultDiv.textContent = `Ошибка при загрузке: ${errorMessage}`;
     });
@@ -87,5 +98,12 @@ function suggestClassification(className, description) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         return response.json();
+    })
+    .then(data => {
+        return data;
+    })
+    .catch(error => {
+        console.error('Ошибка при получении предложений классификации:', error);
+        return { priznak: null, confidence: 0, method: null };
     });
 }
