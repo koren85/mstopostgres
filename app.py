@@ -591,39 +591,66 @@ def upload_analysis():
         
         # Предполагаемое отображение колонок Excel на поля модели
         column_mapping = {
-            'a_ouid': ['a_ouid', 'a-ouid', 'ouid'],
-            'mssql_sxclass_description': ['mssql_sxclass_description', 'mssql sxclass description', 'description'],
-            'mssql_sxclass_name': ['mssql_sxclass_name', 'mssql sxclass name', 'name', 'class_name'],
-            'mssql_sxclass_map': ['mssql_sxclass_map', 'mssql sxclass map', 'map'],
-            'system_class': ['system_class', 'systemclass'],
-            'is_link_table': ['is_link_table', 'islinktable', 'link_table'],
-            'parent_class': ['parent_class', 'parentclass'],
-            'child_classes': ['child_classes', 'childclasses'],
-            'child_count': ['child_count', 'childcount'],
-            'created_date': ['created_date', 'createddate'],
-            'created_by': ['created_by', 'createdby'],
-            'modified_date': ['modified_date', 'modifieddate'],
-            'modified_by': ['modified_by', 'modifiedby'],
-            'folder_paths': ['folder_paths', 'folderpaths'],
-            'object_count': ['object_count', 'objectcount'],
-            'last_object_created': ['last_object_created', 'lastobjectcreated'],
-            'last_object_modified': ['last_object_modified', 'lastobjectmodified'],
-            'attribute_count': ['attribute_count', 'attributecount'],
+            'a_ouid': ['a_ouid', 'a-ouid', 'ouid', 'a ouid'],
+            'mssql_sxclass_description': ['mssql_sxclass_description', 'mssql sxclass description', 'description', 'mssql sxclass_description'],
+            'mssql_sxclass_name': ['mssql_sxclass_name', 'mssql sxclass name', 'name', 'class_name', 'mssql sxclass_name'],
+            'mssql_sxclass_map': ['mssql_sxclass_map', 'mssql sxclass map', 'map', 'mssql sxclass_map'],
+            'system_class': ['system_class', 'systemclass', 'system_class'],
+            'is_link_table': ['is_link_table', 'islinktable', 'link_table', 'is link_table'],
+            'parent_class': ['parent_class', 'parentclass', 'parent class'],
+            'child_classes': ['child_classes', 'childclasses', 'child classes'],
+            'child_count': ['child_count', 'childcount', 'child count'],
+            'created_date': ['created_date', 'createddate', 'created date'],
+            'created_by': ['created_by', 'createdby', 'created by'],
+            'modified_date': ['modified_date', 'modifieddate', 'modified date'],
+            'modified_by': ['modified_by', 'modifiedby', 'modified by'],
+            'folder_paths': ['folder_paths', 'folderpaths', 'folder paths'],
+            'object_count': ['object_count', 'objectcount', 'object count'],
+            'last_object_created': ['last_object_created', 'lastobjectcreated', 'last object created'],
+            'last_object_modified': ['last_object_modified', 'lastobjectmodified', 'last object modified'],
+            'attribute_count': ['attribute_count', 'attributecount', 'attribute count'],
             'category': ['category'],
-            'migration_flag': ['migration_flag', 'migrationflag'],
-            'rule_info': ['rule_info', 'ruleinfo']
+            'migration_flag': ['migration_flag', 'migrationflag', 'migration flag'],
+            'rule_info': ['rule_info', 'ruleinfo', 'rule info'],
+            'priznak': ['priznak']
         }
         
         # Находим фактические названия колонок в Excel-файле и сопоставляем их с полями модели
         excel_column_map = {}
         for model_field, possible_excel_columns in column_mapping.items():
+            found = False
+            # Сначала ищем точное совпадение
             for excel_column in df.columns:
-                excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
-                if excel_column_normalized in possible_excel_columns:
+                if excel_column.strip().lower() in possible_excel_columns:
                     excel_column_map[model_field] = excel_column
+                    found = True
                     break
-        
+            
+            # Если не нашли точное совпадение, ищем по нормализованному имени
+            if not found:
+                for excel_column in df.columns:
+                    excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
+                    if excel_column_normalized in possible_excel_columns:
+                        excel_column_map[model_field] = excel_column
+                        found = True
+                        break
+                        
         logging.info(f"Сопоставление колонок Excel с полями модели: {excel_column_map}")
+        
+        # Проверяем наличие ключевых колонок
+        if 'mssql_sxclass_name' not in excel_column_map and 'mssql_sxclass_description' not in excel_column_map:
+            logging.warning("Не найдены ключевые колонки в Excel файле!")
+            logging.warning(f"Доступные колонки: {df.columns.tolist()}")
+            
+            # Пробуем найти ближайшие совпадения для ключевых колонок
+            for col in df.columns:
+                col_lower = col.lower()
+                if 'name' in col_lower or 'класс' in col_lower or 'class' in col_lower:
+                    excel_column_map['mssql_sxclass_name'] = col
+                    logging.info(f"Используем '{col}' как mssql_sxclass_name")
+                elif 'desc' in col_lower or 'опис' in col_lower:
+                    excel_column_map['mssql_sxclass_description'] = col
+                    logging.info(f"Используем '{col}' как mssql_sxclass_description")
         
         # Обрабатываем каждую строку Excel
         processed_records = []
@@ -641,15 +668,38 @@ def upload_analysis():
             
             # Заполняем поля из Excel на основе сопоставления
             for model_field, excel_column in excel_column_map.items():
-                value = row[excel_column]
-                # Проверяем, является ли значение NaN 
-                if pd.isna(value):
-                    value = None
-                setattr(analysis_record, model_field, value)
+                try:
+                    value = row[excel_column]
+                    # Проверяем, является ли значение NaN 
+                    if pd.isna(value):
+                        value = None
+                    elif model_field in ['a_ouid', 'child_count', 'object_count', 'attribute_count']:
+                        # Числовые поля
+                        if value is not None:
+                            try:
+                                value = int(value)
+                            except (ValueError, TypeError):
+                                value = None
+                    elif model_field in ['system_class', 'is_link_table']:
+                        # Булевы поля
+                        if isinstance(value, str):
+                            value = value.lower() in ['true', 'yes', 'да', '1', 'истина']
+                    elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
+                        # Даты
+                        if value is not None and not isinstance(value, datetime):
+                            try:
+                                value = pd.to_datetime(value)
+                            except:
+                                value = None
+                                
+                    # Устанавливаем значение атрибута
+                    setattr(analysis_record, model_field, value)
+                except Exception as field_error:
+                    logging.warning(f"Ошибка при обработке поля {model_field}: {str(field_error)}")
             
             # Для отладки: выводим значения ключевых полей
-            logging.info(f"Строка {index}: name={analysis_record.mssql_sxclass_name}, "
-                        f"description={analysis_record.mssql_sxclass_description}")
+            logging.info(f"Строка {index}: name={getattr(analysis_record, 'mssql_sxclass_name', None)}, "
+                        f"description={getattr(analysis_record, 'mssql_sxclass_description', None)}")
             
             db.session.add(analysis_record)
             processed_records.append(analysis_record)
