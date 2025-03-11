@@ -389,6 +389,24 @@ def batches():
         ).all()
 
         # Собираем информацию по каждой загрузке
+        batches_info = []
+        for record in batch_ids:
+            batch_id = record[0]
+            file_name = record[1] if record[1] else "Неизвестный файл"
+            upload_date = record[2]
+            
+            stats = get_batch_statistics(batch_id)
+            batches_info.append({
+                'batch_id': batch_id,
+                'file_name': file_name,
+                'upload_date': upload_date,
+                'stats': stats
+            })
+
+        return render_template('batches.html', batches=batches_info)
+    except Exception as e:
+        logging.error(f"Error on batches page: {str(e)}")
+        return render_template('batches.html', batches=[], error=str(e))
 
 
 @app.route('/run_classification/<batch_id>', methods=['POST'])
@@ -420,26 +438,6 @@ def run_classification(batch_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
-
-        batches_info = []
-        for record in batch_ids:
-            batch_id = record[0]
-            file_name = record[1] if record[1] else "Неизвестный файл"
-            upload_date = record[2]
-            
-            stats = get_batch_statistics(batch_id)
-            batches_info.append({
-                'batch_id': batch_id,
-                'file_name': file_name,
-                'upload_date': upload_date,
-                'stats': stats
-            })
-
-        return render_template('batches.html', batches=batches_info)
-    except Exception as e:
-        logging.error(f"Error on batches page: {str(e)}")
-        return render_template('batches.html', batches=[], error=str(e))
 
 @app.route('/api/batch/<batch_id>', methods=['DELETE'])
 def delete_batch(batch_id):
