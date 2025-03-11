@@ -381,6 +381,14 @@ def batches():
             MigrationClass.batch_id,
             MigrationClass.file_name,
             func.min(MigrationClass.upload_date).label('upload_date')
+        ).group_by(
+            MigrationClass.batch_id,
+            MigrationClass.file_name
+        ).order_by(
+            func.min(MigrationClass.upload_date).desc()
+        ).all()
+
+        # Собираем информацию по каждой загрузке
 
 
 @app.route('/run_classification/<batch_id>', methods=['POST'])
@@ -414,14 +422,6 @@ def run_classification(batch_id):
         return jsonify({'error': str(e)}), 500
 
 
-        ).group_by(
-            MigrationClass.batch_id,
-            MigrationClass.file_name
-        ).order_by(
-            func.min(MigrationClass.upload_date).desc()
-        ).all()
-
-        # Собираем информацию по каждой загрузке
         batches_info = []
         for record in batch_ids:
             batch_id = record[0]
