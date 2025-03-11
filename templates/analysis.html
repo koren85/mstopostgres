@@ -153,25 +153,75 @@
             {% if pages > 1 %}
             <nav aria-label="Page navigation" class="mt-3">
                 <ul class="pagination justify-content-center">
-                    {% if page > 1 %}
-                    <li class="page-item">
-                        <a class="page-link" href="{{ url_for('analysis', page=page-1, batch_id=batch_id) }}">Предыдущая</a>
+                    <!-- Кнопка "Первая" страница -->
+                    <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('analysis', page=1, batch_id=batch_id) }}" aria-label="Первая">
+                            <span aria-hidden="true">&laquo;&laquo;</span>
+                        </a>
                     </li>
+                    
+                    <!-- Кнопка "Предыдущая" -->
+                    <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('analysis', page=page-1, batch_id=batch_id) }}" aria-label="Предыдущая">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                    
+                    <!-- Сокращенный список страниц для большого количества страниц -->
+                    {% set start_page = [1, page - 2]|max %}
+                    {% set end_page = [pages, page + 2]|min %}
+                    
+                    <!-- Отображаем первую страницу и многоточие если нужно -->
+                    {% if start_page > 1 %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('analysis', page=1, batch_id=batch_id) }}">1</a>
+                        </li>
+                        {% if start_page > 2 %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
                     {% endif %}
                     
-                    {% for p in range(1, pages + 1) %}
-                    <li class="page-item {% if p == page %}active{% endif %}">
-                        <a class="page-link" href="{{ url_for('analysis', page=p, batch_id=batch_id) }}">{{ p }}</a>
-                    </li>
+                    <!-- Отображаем основной набор страниц -->
+                    {% for p in range(start_page, end_page + 1) %}
+                        <li class="page-item {% if p == page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('analysis', page=p, batch_id=batch_id) }}">{{ p }}</a>
+                        </li>
                     {% endfor %}
                     
-                    {% if page < pages %}
-                    <li class="page-item">
-                        <a class="page-link" href="{{ url_for('analysis', page=page+1, batch_id=batch_id) }}">Следующая</a>
-                    </li>
+                    <!-- Отображаем многоточие и последнюю страницу если нужно -->
+                    {% if end_page < pages %}
+                        {% if end_page < pages - 1 %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ url_for('analysis', page=pages, batch_id=batch_id) }}">{{ pages }}</a>
+                        </li>
                     {% endif %}
+                    
+                    <!-- Кнопка "Следующая" -->
+                    <li class="page-item {% if page == pages %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('analysis', page=page+1, batch_id=batch_id) }}" aria-label="Следующая">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                    
+                    <!-- Кнопка "Последняя" страница -->
+                    <li class="page-item {% if page == pages %}disabled{% endif %}">
+                        <a class="page-link" href="{{ url_for('analysis', page=pages, batch_id=batch_id) }}" aria-label="Последняя">
+                            <span aria-hidden="true">&raquo;&raquo;</span>
+                        </a>
+                    </li>
                 </ul>
             </nav>
+            
+            <!-- Информация о пагинации -->
+            <div class="text-center text-muted">
+                <small>Страница {{ page }} из {{ pages }} (всего записей: {{ pagination.total }})</small>
+            </div>
             {% endif %}
         </div>
     </div>

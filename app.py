@@ -455,8 +455,9 @@ def analysis():
     # Запрос с сортировкой
     query = base_query.order_by(AnalysisData.upload_date.desc())
     
-    # Пагинация
+    # Пагинация с total
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    total_records = pagination.total
 
     # Получаем информацию о всех батчах для фильтра
     batch_options = db.session.query(
@@ -524,6 +525,7 @@ def analysis():
                            items=pagination.items,
                            page=page,
                            pages=pagination.pages,
+                           pagination=pagination,
                            batch_id=batch_id,
                            batch_options=batch_list,
                            batches=batches)
