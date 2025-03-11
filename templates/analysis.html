@@ -71,6 +71,10 @@
                             </td>
                             <td>
                                 <div class="btn-group">
+                                    <button class="btn btn-sm btn-primary analyze-batch-btn" 
+                                            data-batch-id="{{ batch.batch_id }}">
+                                        <i class="bi bi-search"></i> Анализировать всё
+                                    </button>
                                     <button class="btn btn-sm btn-danger delete-batch" 
                                             data-batch-id="{{ batch.batch_id }}"
                                             data-bs-toggle="modal" 
@@ -263,6 +267,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Ошибка: ' + error.message);
                 this.disabled = false;
                 this.innerHTML = '<i class="bi bi-search"></i> Анализировать';
+            });
+        });
+    });
+
+    // Обработка анализа всего батча
+    document.querySelectorAll('.analyze-batch-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const batchId = this.dataset.batchId;
+            if (!confirm('Вы уверены, что хотите проанализировать все записи в этом батче?')) {
+                return;
+            }
+            
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Анализ...';
+            
+            // Отправляем запрос на анализ всего батча
+            fetch(`/api/analyze_batch/${batchId}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(`Анализ завершен: ${data.message}. Найдено конфликтных записей: ${data.conflicts}`);
+                    window.location.reload();
+                } else {
+                    alert('Ошибка: ' + data.error);
+                    this.disabled = false;
+                    this.innerHTML = '<i class="bi bi-search"></i> Анализировать всё';
+                }
+            })
+            .catch(error => {
+                alert('Ошибка: ' + error.message);
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-search"></i> Анализировать всё';
             });
         });
     });

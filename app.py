@@ -680,6 +680,82 @@ def analyze_item(item_id):
         logging.error(f"Ошибка при анализе записи {item_id}: {str(e)}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/analyze_batch/<batch_id>', methods=['POST'])
+def analyze_batch(batch_id):
+    """Анализ всех записей в батче"""
+    try:
+        # Получаем все записи из батча со статусом pending
+        items = AnalysisData.query.filter_by(
+            batch_id=batch_id, 
+            analysis_state='pending'
+        ).all()
+        
+        if not items:
+            return jsonify({'success': False, 'error': 'Нет записей для анализа или батч не найден'}), 404
+        
+        total = len(items)
+        processed = 0
+        conflicts = 0
+        
+        # Анализируем каждую запись
+        for item in items:
+            # Ищем совпадения в исторических данных
+            matches = MigrationClass.query.filter(
+                MigrationClass.mssql_sxclass_name == item.mssql_sxclass_name,
+                MigrationClass.mssql_sxclass_description == item.mssql_sxclass_description
+            ).all()
+            
+            # Собираем информацию о совпадениях
+            historical_data = []
+            priznaks = set()
+            
+            for match in matches:
+                if match.priznak:  # Учитываем только записи с заполненным priznak
+                    historical_data.append({
+                        'priznak': match.priznak,
+                        'source_system': match.source_system,
+                        'upload_date': match.upload_date.isoformat() if match.upload_date else None
+                    })
+                    priznaks.add(match.priznak)
+            
+            # Обновляем запись
+            item.matched_historical_data = historical_data
+            item.analysis_date = datetime.utcnow()
+            
+            # Если найден только один вариант priznak, используем его
+            if len(priznaks) == 1:
+                item.priznak = next(iter(priznaks))
+                item.analysis_state = 'analyzed'
+            elif len(priznaks) > 1:
+                item.analysis_state = 'conflict'
+                conflicts += 1
+            else:
+                # Если совпадений не найдено, отмечаем как проанализированную без результата
+                item.analysis_state = 'analyzed'
+                
+            processed += 1
+            
+            # Коммитим каждые 100 записей, чтобы не держать транзакцию открытой слишком долго
+            if processed % 100 == 0:
+                db.session.commit()
+                logging.info(f"Обработано {processed} из {total} записей в батче {batch_id}")
+        
+        # Финальный коммит
+        db.session.commit()
+        
+        logging.info(f"Завершен анализ батча {batch_id}: обработано {processed} записей, найдено {conflicts} конфликтов")
+        return jsonify({
+            'success': True, 
+            'message': f'Проанализировано {processed} записей', 
+            'processed': processed,
+            'conflicts': conflicts
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Ошибка при анализе батча {batch_id}: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/analysis_batch/<batch_id>', methods=['DELETE'])
 def delete_analysis_batch(batch_id):
     """Удаление загруженного батча данных для анализа"""
