@@ -601,149 +601,87 @@ def upload_analysis():
         # Создаем batch_id для группировки записей
         batch_id = str(uuid.uuid4())
         
-        # Предполагаемое отображение колонок Excel на поля модели
+        # Отображение колонок Excel на поля модели, согласно ручному сопоставлению
         column_mapping = {
-            'a_ouid': ['a_ouid', 'a-ouid', 'ouid', 'a ouid'],
-            'mssql_sxclass_description': ['mssql_sxclass_description', 'mssql sxclass description', 'description', 'mssql sxclass_description'],
-            'mssql_sxclass_name': ['mssql_sxclass_name', 'mssql sxclass name', 'name', 'class_name', 'mssql sxclass_name'],
-            'mssql_sxclass_map': ['mssql_sxclass_map', 'mssql sxclass map', 'map', 'mssql sxclass_map'],
-            'system_class': ['system_class', 'systemclass', 'system_class'],
-            'is_link_table': ['is_link_table', 'islinktable', 'link_table', 'is link_table'],
-            'parent_class': ['parent_class', 'parentclass', 'parent class'],
-            'child_classes': ['child_classes', 'childclasses', 'child classes'],
-            'child_count': ['child_count', 'childcount', 'child count'],
-            'created_date': ['created_date', 'createddate', 'created date'],
-            'created_by': ['created_by', 'createdby', 'created by'],
-            'modified_date': ['modified_date', 'modifieddate', 'modified date'],
-            'modified_by': ['modified_by', 'modifiedby', 'modified by'],
-            'folder_paths': ['folder_paths', 'folderpaths', 'folder paths'],
-            'object_count': ['object_count', 'objectcount', 'object count'],
-            'last_object_created': ['last_object_created', 'lastobjectcreated', 'last object created'],
-            'last_object_modified': ['last_object_modified', 'lastobjectmodified', 'last object modified'],
-            'attribute_count': ['attribute_count', 'attributecount', 'attribute count'],
-            'category': ['category'],
-            'migration_flag': ['migration_flag', 'migrationflag', 'migration flag'],
-            'rule_info': ['rule_info', 'ruleinfo', 'rule info'],
+            'a_ouid': ['A_OUID'],
+            'mssql_sxclass_description': ['MSSQL_SXCLASS_DESCRIPTION'],
+            'mssql_sxclass_name': ['MSSQL_SXCLASS_NAME'],
+            'mssql_sxclass_map': ['MSSQL_SXCLASS_MAP'],
+            'system_class': ['Системный класс'],
+            'is_link_table': ['Используется как таблица связи'],
+            'parent_class': ['Родительский класс'],
+            'child_classes': ['Дочерние классы'],
+            'child_count': ['Количество дочерних классов'],
+            'created_date': ['Дата создания'],
+            'created_by': ['Создал'],
+            'modified_date': ['Дата изменения'],
+            'modified_by': ['Изменил'],
+            'folder_paths': ['Пути папок в консоли'],
+            'object_count': ['Количество объектов'],
+            'last_object_created': ['Дата создания последнего объекта'],
+            'last_object_modified': ['Дата последнего изменения'],
+            'attribute_count': ['Всего атрибутов'],
+            'category': ['Категория (итог)'],
+            'migration_flag': ['Признак миграции (итог)'],
+            'rule_info': ['Rule Info (какое правило сработало)'],
             'priznak': ['priznak']
         }
         
         # Находим фактические названия колонок в Excel-файле и сопоставляем их с полями модели
+        # Используем точное сопоставление по определенному правилу
         excel_column_map = {}
-        for model_field, possible_excel_columns in column_mapping.items():
+        
+        # Выводим доступные колонки для отладки
+        logging.info(f"Доступные колонки в Excel: {df.columns.tolist()}")
+        
+        # Преобразуем все колонки в строки для сравнения
+        str_columns = [str(col).strip() for col in df.columns]
+        
+        # Строго сопоставляем по заданным правилам
+        for model_field, excel_columns in column_mapping.items():
             found = False
-            # Сначала ищем точное совпадение
-            for excel_column in df.columns:
-                # Проверяем тип данных перед использованием strip()
-                if isinstance(excel_column, str):
-                    if excel_column.strip().lower() in possible_excel_columns:
-                        excel_column_map[model_field] = excel_column
+            for excel_column_name in excel_columns:
+                # Ищем колонку с точным именем
+                for i, col in enumerate(str_columns):
+                    if col.upper() == excel_column_name.upper():
+                        excel_column_map[model_field] = df.columns[i]
                         found = True
+                        logging.info(f"Найдено точное соответствие: {model_field} -> {df.columns[i]}")
                         break
-                else:
-                    # Для числовых индексов преобразуем в строку
-                    excel_column_str = str(excel_column)
-                    if excel_column_str.lower() in possible_excel_columns:
-                        excel_column_map[model_field] = excel_column
-                        found = True
-                        break
-            
-            # Если не нашли точное совпадение, ищем по нормализованному имени
-            if not found:
-                for excel_column in df.columns:
-                    # Обрабатываем разные типы данных
-                    if isinstance(excel_column, str):
-                        excel_column_normalized = excel_column.strip().lower().replace(' ', '_')
-                    else:
-                        # Для числовых индексов преобразуем в строку
-                        excel_column_normalized = str(excel_column)
-                        
-                    if excel_column_normalized in possible_excel_columns:
-                        excel_column_map[model_field] = excel_column
-                        found = True
-                        break
-                        
+                if found:
+                    break
+                    
+                # Если точное соответствие не найдено, попробуем найти по вхождению
+                if not found:
+                    for i, col in enumerate(str_columns):
+                        if excel_column_name.upper() in col.upper():
+                            excel_column_map[model_field] = df.columns[i]
+                            found = True
+                            logging.info(f"Найдено соответствие по вхождению: {model_field} -> {df.columns[i]}")
+                            break
+                if found:
+                    break
+        
         logging.info(f"Сопоставление колонок Excel с полями модели: {excel_column_map}")
         
-        # Проверяем наличие ключевых колонок
-        if 'mssql_sxclass_name' not in excel_column_map and 'mssql_sxclass_description' not in excel_column_map:
-            logging.warning("Не найдены ключевые колонки в Excel файле!")
-            logging.warning(f"Доступные колонки: {df.columns.tolist()}")
-            
-            # Пробуем найти ближайшие совпадения для ключевых колонок
-            for col in df.columns:
-                # Преобразуем любые значения в строку перед использованием lower()
-                col_str = str(col).lower()
-                if 'name' in col_str or 'класс' in col_str or 'class' in col_str:
-                    excel_column_map['mssql_sxclass_name'] = col
-                    logging.info(f"Используем '{col}' как mssql_sxclass_name")
-                elif 'desc' in col_str or 'опис' in col_str:
-                    excel_column_map['mssql_sxclass_description'] = col
-                    logging.info(f"Используем '{col}' как mssql_sxclass_description")
+        # Проверяем наличие ключевых колонок для анализа
+        if 'mssql_sxclass_name' not in excel_column_map:
+            logging.warning("Не найдена ключевая колонка MSSQL_SXCLASS_NAME")
+            # Пробуем найти колонку по ключевым словам как запасной вариант
+            for i, col in enumerate(str_columns):
+                if 'name' in col.lower() or 'класс' in col.lower() or 'class' in col.lower():
+                    excel_column_map['mssql_sxclass_name'] = df.columns[i]
+                    logging.info(f"Используем '{df.columns[i]}' как mssql_sxclass_name")
+                    break
         
-        # Отображение колонок Excel в поля модели (упрощенное)
-        direct_column_mapping = {}
-        
-        # Прямое сопоставление по точному имени колонки
-        for col in df.columns:
-            col_str = str(col).strip().lower()
-            if 'name' in col_str or 'класс' in col_str or 'class' in col_str:
-                direct_column_mapping['mssql_sxclass_name'] = col
-                logging.info(f"Найдена колонка для имени класса: {col}")
-            elif 'desc' in col_str or 'опис' in col_str:
-                direct_column_mapping['mssql_sxclass_description'] = col
-                logging.info(f"Найдена колонка для описания: {col}")
-            elif 'ouid' in col_str:
-                direct_column_mapping['a_ouid'] = col
-                logging.info(f"Найдена колонка для a_ouid: {col}")
-            elif 'map' in col_str:
-                direct_column_mapping['mssql_sxclass_map'] = col
-            elif 'system' in col_str and 'class' in col_str:
-                direct_column_mapping['system_class'] = col
-            elif 'link' in col_str and 'table' in col_str:
-                direct_column_mapping['is_link_table'] = col
-            elif 'parent' in col_str:
-                direct_column_mapping['parent_class'] = col
-            elif 'child' in col_str and 'class' in col_str:
-                direct_column_mapping['child_classes'] = col
-            elif 'child' in col_str and 'count' in col_str:
-                direct_column_mapping['child_count'] = col
-            elif 'created' in col_str and 'date' in col_str:
-                direct_column_mapping['created_date'] = col
-            elif 'created' in col_str and 'by' in col_str:
-                direct_column_mapping['created_by'] = col
-            elif 'modif' in col_str and 'date' in col_str:
-                direct_column_mapping['modified_date'] = col
-            elif 'modif' in col_str and 'by' in col_str:
-                direct_column_mapping['modified_by'] = col
-            elif 'folder' in col_str or 'path' in col_str:
-                direct_column_mapping['folder_paths'] = col
-            elif 'object' in col_str and 'count' in col_str:
-                direct_column_mapping['object_count'] = col
-            elif 'last' in col_str and 'object' in col_str and 'created' in col_str:
-                direct_column_mapping['last_object_created'] = col
-            elif 'last' in col_str and 'object' in col_str and 'modif' in col_str:
-                direct_column_mapping['last_object_modified'] = col
-            elif 'attribute' in col_str and 'count' in col_str:
-                direct_column_mapping['attribute_count'] = col
-            elif 'category' in col_str:
-                direct_column_mapping['category'] = col
-            elif 'migration' in col_str and 'flag' in col_str:
-                direct_column_mapping['migration_flag'] = col
-            elif 'rule' in col_str and 'info' in col_str:
-                direct_column_mapping['rule_info'] = col
-            elif 'priznak' in col_str:
-                direct_column_mapping['priznak'] = col
-        
-        logging.info(f"Прямое сопоставление колонок: {direct_column_mapping}")
-        
-        # Если ключевые колонки не найдены, пробуем использовать порядковые номера
-        if 'mssql_sxclass_name' not in direct_column_mapping and len(df.columns) >= 3:
-            direct_column_mapping['mssql_sxclass_name'] = df.columns[2]  # Обычно 3-я колонка
-            logging.info(f"Используем колонку {df.columns[2]} как mssql_sxclass_name")
-            
-        if 'mssql_sxclass_description' not in direct_column_mapping and len(df.columns) >= 2:
-            direct_column_mapping['mssql_sxclass_description'] = df.columns[1]  # Обычно 2-я колонка
-            logging.info(f"Используем колонку {df.columns[1]} как mssql_sxclass_description")
+        if 'mssql_sxclass_description' not in excel_column_map:
+            logging.warning("Не найдена ключевая колонка MSSQL_SXCLASS_DESCRIPTION")
+            # Пробуем найти колонку по ключевым словам как запасной вариант
+            for i, col in enumerate(str_columns):
+                if 'desc' in col.lower() or 'опис' in col.lower():
+                    excel_column_map['mssql_sxclass_description'] = df.columns[i]
+                    logging.info(f"Используем '{df.columns[i]}' как mssql_sxclass_description")
+                    break
         
         # Обрабатываем каждую строку Excel
         processed_records = []
@@ -760,10 +698,10 @@ def upload_analysis():
             analysis_record['matched_historical_data'] = []
             
             # Заполняем поля из Excel на основе сопоставления
-            for model_field, excel_column in direct_column_mapping.items():
+            for model_field, excel_column in excel_column_map.items():
                 try:
-                    # Извлекаем значение и преобразуем к строке, если оно не None
-                    raw_value = row[excel_column]
+                    # Извлекаем значение из DataFrame
+                    raw_value = row.get(excel_column)
                     
                     # Пропускаем None и NaN
                     if pd.isna(raw_value) or raw_value is None:
@@ -789,7 +727,7 @@ def upload_analysis():
                                 value = None
                         elif model_field in ['system_class', 'is_link_table']:
                             # Булевы поля
-                            value = value.lower() in ['true', 'yes', 'да', '1', 'истина', 'true']
+                            value = value.lower() in ['true', 'yes', 'да', '1', 'истина', '+', 'true']
                         elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
                             # Даты
                             try:
