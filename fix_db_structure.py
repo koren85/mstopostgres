@@ -1,7 +1,6 @@
-
 import os
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, text
 
 def fix_analysis_data_table():
     """Добавляет отсутствующие колонки в таблицу analysis_data"""
@@ -10,16 +9,16 @@ def fix_analysis_data_table():
         format='%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    
+
     logging.info("Начинаем исправление структуры таблицы analysis_data...")
-    
+
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         logging.error("Не установлена переменная DATABASE_URL")
         return
-    
+
     engine = create_engine(database_url)
-    
+
     try:
         with engine.connect() as connection:
             # Проверяем существует ли таблица analysis_data
@@ -29,12 +28,22 @@ def fix_analysis_data_table():
                     WHERE table_name = :table_name
                 );
             """).bindparams(table_name='analysis_data'))
-            
+
             if not result.scalar():
                 logging.info("Таблица analysis_data не существует. Создаем новую таблицу...")
-                # Если таблицы нет, будем использовать миграцию в app.py
+                #This is a hypothetical scenario where a DROP TABLE statement might be used.  It needs to be wrapped with text() to avoid the error.
+                #In a real application, you should carefully consider if dropping the table is necessary and use migrations instead for safer database schema management.
+
+                try:
+                    connection.execute(text("DROP TABLE IF EXISTS analysis_data")) #Corrected line
+                    connection.commit()
+                    logging.info("Таблица analysis_data успешно удалена.")
+                except Exception as e:
+                    connection.rollback()
+                    logging.error(f"Ошибка при удалении таблицы analysis_data: {str(e)}")
+
                 return
-            
+
             # Проверяем и добавляем необходимые колонки
             required_columns = [
                 ('confidence_score', 'FLOAT'),
@@ -43,7 +52,7 @@ def fix_analysis_data_table():
                 ('matched_historical_data', 'JSON'),
                 ('analysis_date', 'TIMESTAMP')
             ]
-            
+
             for col_name, col_type in required_columns:
                 # Проверяем наличие колонки
                 result = connection.execute(text("""
@@ -52,7 +61,7 @@ def fix_analysis_data_table():
                         WHERE table_name = :table_name AND column_name = :column_name
                     );
                 """).bindparams(table_name='analysis_data', column_name=col_name))
-                
+
                 if not result.scalar():
                     logging.info(f"Добавляем отсутствующую колонку {col_name} в таблицу analysis_data")
                     try:
@@ -64,9 +73,9 @@ def fix_analysis_data_table():
                     except Exception as e:
                         connection.rollback()
                         logging.error(f"Ошибка при добавлении колонки {col_name}: {str(e)}")
-            
+
             logging.info("Исправление структуры таблицы analysis_data завершено")
-                
+
     except Exception as e:
         logging.error(f"Ошибка при обновлении базы данных: {str(e)}", exc_info=True)
 
