@@ -726,6 +726,17 @@ def upload_analysis():
             db.session.add(record_obj)
             processed_records.append(record_obj)
             
+            # Детальное логирование первых 5 записей
+            if index < 5:
+                logging.info(f"=== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПИСИ {index} ===")
+                logging.info(f"ДАННЫЕ ИЗ EXCEL: {dict(row)}")
+                logging.info(f"ДАННЫЕ ДЛЯ БД: {analysis_record}")
+                
+                # Проверяем типы данных
+                for key, value in analysis_record.items():
+                    if value is not None:
+                        logging.info(f"ПОЛЕ: {key}, ЗНАЧЕНИЕ: {value}, ТИП: {type(value).__name__}")
+            
             # Периодически коммитим для больших файлов
             if index > 0 and index % 500 == 0:
                 logging.info(f"Промежуточное сохранение: обработано {index} строк")
@@ -733,6 +744,17 @@ def upload_analysis():
         
         logging.info(f"Обработано {len(processed_records)} записей из файла")
         db.session.commit()
+        
+        # Проверяем, что реально записалось в БД
+        try:
+            logging.info("=== ПРОВЕРКА ДАННЫХ В БД ===")
+            first_records = AnalysisData.query.filter_by(batch_id=batch_id).limit(3).all()
+            for i, record in enumerate(first_records):
+                record_dict = {c.name: getattr(record, c.name) for c in record.__table__.columns}
+                logging.info(f"ЗАПИСЬ {i} В БД: {record_dict}")
+        except Exception as e:
+            logging.error(f"Ошибка при проверке данных в БД: {str(e)}")
+            
         logging.info(f"Все записи успешно сохранены в базу данных")
         
         return jsonify({
