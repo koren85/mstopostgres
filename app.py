@@ -646,7 +646,7 @@ def upload_analysis():
             for excel_column_name in excel_columns:
                 # Ищем колонку с точным именем (исправлена ошибка в сравнении)
                 for i, col in enumerate(str_columns):
-                    if col.upper() == excel_column_name.upper():():
+                    if col.upper() == excel_column_name.upper():
                         excel_column_map[model_field] = df.columns[i]
                         found = True
                         logging.info(f"Найдено точное соответствие: {model_field} -> {df.columns[i]}")
