@@ -124,9 +124,9 @@ def check_and_fix_table(connection, table_name, required_columns):
     result = connection.execute(text(f"""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
-                    WHERE table_name = :table_name
+                    WHERE table_name = '{table_name}'
                 );
-            """).bindparams(table_name=table_name))
+            """))
 
     if not result.scalar():
         logging.info(f"Таблица {table_name} не существует. Будет создана автоматически.")
@@ -143,7 +143,7 @@ def check_and_fix_table(connection, table_name, required_columns):
                 connection.execute(text(f"""
                     ALTER TABLE {table_name} 
                     ADD COLUMN IF NOT EXISTS {col_name} {col_type};
-                """).bindparams(table_name=table_name, col_name=col_name, col_type=col_type))
+                """))
                 logging.info(f"Успешно добавлена колонка {col_name}")
             except Exception as e:
                 logging.error(f"Ошибка при добавлении колонки {col_name}: {str(e)}")
@@ -158,9 +158,11 @@ def create_table(connection, table_name, columns):
         if not any(col[0].lower() == 'id' for col in columns):
             columns_sql = f"id SERIAL PRIMARY KEY, {columns_sql}"
 
+        # Используем форматирование строки для имени таблицы напрямую,
+        # так как text() не поддерживает bindparams для имени таблицы
         sql = f"CREATE TABLE {table_name} ({columns_sql});"
 
-        connection.execute(text(sql).bindparams(table_name=table_name))
+        connection.execute(text(sql))
         connection.commit()
         logging.info(f"Таблица {table_name} успешно создана")
     except Exception as e:
@@ -172,8 +174,8 @@ def get_table_columns(connection, table_name):
     result = connection.execute(text(f"""
         SELECT column_name 
         FROM information_schema.columns 
-        WHERE table_name = :table_name
-    """).bindparams(table_name=table_name))
+        WHERE table_name = '{table_name}'
+    """))
     return [row[0] for row in result]
 
 if __name__ == "__main__":
