@@ -26,9 +26,9 @@ def fix_analysis_data_table():
             result = connection.execute(text("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
-                    WHERE table_name = 'analysis_data'
+                    WHERE table_name = :table_name
                 );
-            """))
+            """).bindparams(table_name='analysis_data'))
             
             if not result.scalar():
                 logging.info("Таблица analysis_data не существует. Создаем новую таблицу...")
@@ -46,20 +46,19 @@ def fix_analysis_data_table():
             
             for col_name, col_type in required_columns:
                 # Проверяем наличие колонки
-                result = connection.execute(text(f"""
+                result = connection.execute(text("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.columns 
-                        WHERE table_name = 'analysis_data' AND column_name = '{col_name}'
+                        WHERE table_name = :table_name AND column_name = :column_name
                     );
-                """))
+                """).bindparams(table_name='analysis_data', column_name=col_name))
                 
                 if not result.scalar():
                     logging.info(f"Добавляем отсутствующую колонку {col_name} в таблицу analysis_data")
                     try:
-                        connection.execute(text(f"""
-                            ALTER TABLE analysis_data 
-                            ADD COLUMN IF NOT EXISTS {col_name} {col_type};
-                        """))
+                        # Need to construct this dynamically as column types can't be parameterized
+                        sql = f"ALTER TABLE analysis_data ADD COLUMN IF NOT EXISTS {col_name} {col_type};"
+                        connection.execute(text(sql))
                         connection.commit()
                         logging.info(f"Успешно добавлена колонка {col_name}")
                     except Exception as e:
