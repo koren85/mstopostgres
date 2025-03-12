@@ -65,25 +65,25 @@ class AnalysisData(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     batch_id = db.Column(db.String(36), nullable=False)  # UUID для группировки загрузок
     file_name = db.Column(db.String(255))  # Имя загруженного файла
-    a_ouid = db.Column(db.BigInteger)
+    a_ouid = db.Column(db.String(255))  # Изменено на строковый тип
     mssql_sxclass_description = db.Column(db.Text)
     mssql_sxclass_name = db.Column(db.Text)
     mssql_sxclass_map = db.Column(db.Text)
     priznak = db.Column(db.Text)  # Будет заполняться после анализа
-    system_class = db.Column(db.Boolean)
-    is_link_table = db.Column(db.Boolean)
+    system_class = db.Column(db.String(255))  # Изменено на строковый тип
+    is_link_table = db.Column(db.String(255))  # Изменено на строковый тип
     parent_class = db.Column(db.Text)
     child_classes = db.Column(db.Text)
-    child_count = db.Column(db.Integer)
-    created_date = db.Column(db.DateTime)
+    child_count = db.Column(db.String(255))  # Изменено на строковый тип
+    created_date = db.Column(db.String(255))  # Изменено на строковый тип
     created_by = db.Column(db.Text)
-    modified_date = db.Column(db.DateTime)
+    modified_date = db.Column(db.String(255))  # Изменено на строковый тип
     modified_by = db.Column(db.Text)
     folder_paths = db.Column(db.Text)
-    object_count = db.Column(db.Integer)
-    last_object_created = db.Column(db.DateTime)
-    last_object_modified = db.Column(db.DateTime)
-    attribute_count = db.Column(db.Integer)
+    object_count = db.Column(db.String(255))  # Изменено на строковый тип
+    last_object_created = db.Column(db.String(255))  # Изменено на строковый тип
+    last_object_modified = db.Column(db.String(255))  # Изменено на строковый тип
+    attribute_count = db.Column(db.String(255))  # Изменено на строковый тип
     category = db.Column(db.Text)
     migration_flag = db.Column(db.Text)
     rule_info = db.Column(db.Text)

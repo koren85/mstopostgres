@@ -707,57 +707,10 @@ def upload_analysis():
                     if pd.isna(raw_value) or raw_value is None:
                         value = None
                     else:
-                        # Преобразуем к строке все значения для безопасности
+                        # Преобразуем к строке все значения
                         value = str(raw_value)
-                        
-                        # Преобразуем к нужному типу в зависимости от поля
-                        if model_field in ['a_ouid', 'child_count', 'object_count', 'attribute_count']:
-                            # Числовые поля
-                            try:
-                                # Сначала проверяем, является ли значение числом или строкой
-                                if isinstance(value, (int, float)):
-                                    # Если уже число, просто используем его
-                                    value = int(float(value))
-                                elif isinstance(value, str) and value.strip():
-                                    # Если строка, очищаем от нечисловых символов
-                                    clean_value = ''.join([c for c in value if c.isdigit() or c == '.'])
-                                    if clean_value:
-                                        value = int(float(clean_value))
-                                    else:
-                                        value = None
-                                else:
-                                    value = None
-                            except (ValueError, TypeError) as e:
-                                logging.warning(f"Ошибка преобразования числового поля {model_field}: {str(e)}, значение: {value}")
-                                value = None
-                        elif model_field in ['system_class', 'is_link_table']:
-                            # Булевы поля
-                            try:
-                                if isinstance(value, bool):
-                                    # Если уже булево, оставляем как есть
-                                    pass
-                                elif isinstance(value, str):
-                                    # Преобразуем строку в булево
-                                    value = value.lower() in ['true', 'yes', 'да', '1', 'истина', '+', 'true']
-                                elif isinstance(value, (int, float)):
-                                    # Преобразуем число в булево
-                                    value = bool(value)
-                                else:
-                                    value = False
-                            except Exception as e:
-                                logging.warning(f"Ошибка преобразования булева поля {model_field}: {str(e)}, значение: {value}")
-                                value = False
-                        elif model_field in ['created_date', 'modified_date', 'last_object_created', 'last_object_modified']:
-                            # Даты
-                            try:
-                                # Если это уже объект datetime, оставляем как есть
-                                if not isinstance(value, datetime):
-                                    value = pd.to_datetime(value)
-                            except Exception as e:
-                                logging.warning(f"Ошибка преобразования даты {model_field}: {str(e)}, значение: {value}")
-                                value = None
                     
-                    # Добавляем значение в запись
+                    # Добавляем значение в запись как строку
                     analysis_record[model_field] = value
                     
                 except Exception as field_error:
