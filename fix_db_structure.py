@@ -1,6 +1,6 @@
 import os
 import logging
-from sqlalchemy import create_engine, text, text
+from sqlalchemy import create_engine, text
 
 def fix_analysis_data_table():
     """Добавляет отсутствующие колонки в таблицу analysis_data"""
@@ -35,11 +35,13 @@ def fix_analysis_data_table():
                 #In a real application, you should carefully consider if dropping the table is necessary and use migrations instead for safer database schema management.
 
                 try:
-                    connection.execute(text("DROP TABLE IF EXISTS analysis_data")) #Corrected line
-                    connection.commit()
+                    trans = connection.begin()  # Явно начинаем транзакцию
+                    connection.execute(text("DROP TABLE IF EXISTS analysis_data"))
+                    trans.commit()  # Фиксируем транзакцию
                     logging.info("Таблица analysis_data успешно удалена.")
                 except Exception as e:
-                    connection.rollback()
+                    if trans and trans.is_active:
+                        trans.rollback()  # Откатываем только активную транзакцию
                     logging.error(f"Ошибка при удалении таблицы analysis_data: {str(e)}")
 
                 return
@@ -67,11 +69,13 @@ def fix_analysis_data_table():
                     try:
                         # Need to construct this dynamically as column types can't be parameterized
                         sql = f"ALTER TABLE analysis_data ADD COLUMN IF NOT EXISTS {col_name} {col_type};"
+                        trans = connection.begin()  # Начинаем транзакцию для каждой колонки
                         connection.execute(text(sql))
-                        connection.commit()
+                        trans.commit()
                         logging.info(f"Успешно добавлена колонка {col_name}")
                     except Exception as e:
-                        connection.rollback()
+                        if trans and trans.is_active:
+                            trans.rollback()
                         logging.error(f"Ошибка при добавлении колонки {col_name}: {str(e)}")
 
             logging.info("Исправление структуры таблицы analysis_data завершено")
