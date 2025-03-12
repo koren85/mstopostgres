@@ -1,3 +1,4 @@
+
 import os
 import logging
 from sqlalchemy import create_engine, text
@@ -38,111 +39,109 @@ def check_analysis_data():
             # Проверяем структуру таблицы
             logging.info("Структура таблицы analysis_data:")
             columns = connection.execute(text("""
-                SELECT column_name, data_type 
+                SELECT column_name, data_type, is_nullable
                 FROM information_schema.columns 
                 WHERE table_name = 'analysis_data'
                 ORDER BY ordinal_position;
             """))
 
             for col in columns:
-                logging.info(f"  {col.column_name}: {col.data_type}")
+                logging.info(f"  {col.column_name}: {col.data_type} (nullable: {col.is_nullable})")
 
             # Получаем количество записей
             count_result = connection.execute(text("SELECT COUNT(*) FROM analysis_data"))
             total_count = count_result.scalar()
             logging.info(f"Всего записей в таблице: {total_count}")
 
-            # Проверяем пустые значения в a_ouid
-            null_count = connection.execute(text("SELECT COUNT(*) FROM analysis_data WHERE a_ouid IS NULL"))
-            null_a_ouid = null_count.scalar()
-            logging.info(f"Записей с NULL в поле a_ouid: {null_a_ouid} ({null_a_ouid/total_count*100:.2f}%)")
-
-            # Выводим примеры первых 3 записей
-            logging.info("Примеры записей:")
-            sample_records = connection.execute(text("""
-                SELECT id, batch_id, file_name, a_ouid, mssql_sxclass_name, upload_date 
-                FROM analysis_data 
-                LIMIT 3
-            """))
-
-            for record in sample_records:
-                logging.info(f"  ID: {record.id}, Batch: {record.batch_id}, File: {record.file_name}")
-                logging.info(f"  A_OUID: {record.a_ouid}, Class: {record.mssql_sxclass_name}")
-
-            # Проверяем исходные данные в Excel (проверяем, есть ли соответствующие записи)
-            logging.info("Анализ оригинальных данных из Excel по значению mssql_sxclass_name:")
-            class_names = connection.execute(text("""
-                SELECT mssql_sxclass_name, COUNT(*) as count
-                FROM analysis_data
-                GROUP BY mssql_sxclass_name
-                ORDER BY count DESC
-                LIMIT 5
-            """))
-
-            for name_record in class_names:
-                logging.info(f"  {name_record.mssql_sxclass_name}: {name_record.count} записей")
-
-            # Проверяем batch_id записей
-            logging.info("Информация по batch_id:")
+            # Проверяем количество записей по batch_id
             batches = connection.execute(text("""
-                SELECT batch_id, file_name, COUNT(*) as record_count
+                SELECT batch_id, COUNT(*) as record_count, file_name
                 FROM analysis_data
                 GROUP BY batch_id, file_name
+                ORDER BY MAX(upload_date) DESC
             """))
-
+            
+            logging.info("Информация по батчам:")
             for batch in batches:
                 logging.info(f"  Batch: {batch.batch_id}, File: {batch.file_name}, Records: {batch.record_count}")
 
-            # Получаем несколько записей для анализа (from original code)
-            records_query = text("""
-                SELECT * FROM analysis_data 
-                ORDER BY upload_date DESC
-                LIMIT 3
-            """)
-            records = connection.execute(records_query).fetchall()
-            column_names = connection.execute(records_query).keys()
+            # Проверяем пустые значения в важных полях
+            null_fields = ['a_ouid', 'mssql_sxclass_name', 'mssql_sxclass_description', 'priznak']
+            for field in null_fields:
+                null_count = connection.execute(text(f"SELECT COUNT(*) FROM analysis_data WHERE {field} IS NULL"))
+                null_field_count = null_count.scalar()
+                percentage = (null_field_count / total_count * 100) if total_count > 0 else 0
+                logging.info(f"Записей с NULL в поле {field}: {null_field_count} ({percentage:.2f}%)")
 
-            for i, record in enumerate(records):
-                logging.info(f"\nЗапись #{i+1}:")
-                record_dict = {}
-
-                for j, col_name in enumerate(column_names):
-                    value = record[j]
-                    if value is not None:
-                        try:
-                            if col_name == 'matched_historical_data' and value:
-                                # Пытаемся распарсить JSON
-                                if isinstance(value, str):
-                                    try:
-                                        parsed = json.loads(value)
-                                        value = f"JSON: {parsed}"
-                                    except:
-                                        value = f"Невалидный JSON: {value}"
-                            record_dict[col_name] = f"{value} (тип: {type(value).__name__})"
-                        except Exception as e:
-                            record_dict[col_name] = f"[Ошибка отображения: {str(e)}]"
-                    else:
-                        record_dict[col_name] = "NULL"
-
-                # Выводим все поля записи
-                for key, value in record_dict.items():
-                    logging.info(f"  {key}: {value}")
-
-            # Проверяем наличие заполненных полей mssql_sxclass_name (from original code, slightly modified)
-            names_query = text("""
-                SELECT mssql_sxclass_name, COUNT(*) 
+            # Выводим примеры первых 5 записей с подробной информацией
+            logging.info("Примеры записей:")
+            sample_records = connection.execute(text("""
+                SELECT *
                 FROM analysis_data 
-                WHERE mssql_sxclass_name IS NOT NULL
-                GROUP BY mssql_sxclass_name
+                ORDER BY upload_date DESC
+                LIMIT 5
+            """))
+
+            for i, record in enumerate(sample_records):
+                logging.info(f"\nЗапись #{i+1}:")
+                record_dict = dict(record._mapping)
+                
+                # Отображаем основные поля
+                logging.info(f"  ID: {record_dict.get('id')}")
+                logging.info(f"  Batch: {record_dict.get('batch_id')}")
+                logging.info(f"  File: {record_dict.get('file_name')}")
+                logging.info(f"  A_OUID: {record_dict.get('a_ouid')}")
+                logging.info(f"  Class Name: {record_dict.get('mssql_sxclass_name')}")
+                logging.info(f"  Description: {record_dict.get('mssql_sxclass_description')}")
+                logging.info(f"  Priznak: {record_dict.get('priznak')}")
+                logging.info(f"  Analysis State: {record_dict.get('analysis_state')}")
+                
+                # Проверяем matched_historical_data
+                matched_data = record_dict.get('matched_historical_data')
+                if matched_data:
+                    if isinstance(matched_data, str):
+                        try:
+                            parsed_data = json.loads(matched_data)
+                            logging.info(f"  Matched Historical Data: {len(parsed_data)} элементов")
+                            for j, match in enumerate(parsed_data[:3]):  # Показываем первые 3 совпадения
+                                logging.info(f"    Match #{j+1}: {match}")
+                        except json.JSONDecodeError:
+                            logging.warning(f"  Matched Historical Data: невалидный JSON: {matched_data[:100]}...")
+                    elif isinstance(matched_data, list):
+                        logging.info(f"  Matched Historical Data: {len(matched_data)} элементов")
+                        for j, match in enumerate(matched_data[:3]):  # Показываем первые 3 совпадения
+                            logging.info(f"    Match #{j+1}: {match}")
+                    else:
+                        logging.info(f"  Matched Historical Data: {type(matched_data).__name__} - {matched_data}")
+                else:
+                    logging.info("  Matched Historical Data: NULL")
+
+            # Проверяем статусы анализа
+            logging.info("\nСтатусы анализа:")
+            states = connection.execute(text("""
+                SELECT analysis_state, COUNT(*) 
+                FROM analysis_data 
+                GROUP BY analysis_state
+            """))
+
+            for state in states:
+                logging.info(f"  {state.analysis_state}: {state[1]} записей")
+
+            # Проверяем заполненность priznak
+            priznak_info = connection.execute(text("""
+                SELECT 
+                    CASE WHEN priznak IS NULL THEN 'NULL' ELSE priznak END as priznak_value,
+                    COUNT(*) 
+                FROM analysis_data 
+                GROUP BY 
+                    CASE WHEN priznak IS NULL THEN 'NULL' ELSE priznak END
                 ORDER BY COUNT(*) DESC
                 LIMIT 10
-            """)
+            """))
 
-            names = connection.execute(names_query).fetchall()
-
-            logging.info(f"\nПримеры заполненных полей mssql_sxclass_name (всего {len(names)}):")
-            for name, count in names:
-                logging.info(f"  '{name}': {count} записей")
+            logging.info("\nРаспределение значений priznak:")
+            for priznak in priznak_info:
+                logging.info(f"  '{priznak[0]}': {priznak[1]} записей")
 
     except Exception as e:
         logging.error(f"Ошибка при проверке таблицы analysis_data: {str(e)}", exc_info=True)

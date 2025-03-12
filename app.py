@@ -729,16 +729,21 @@ def upload_analysis():
             db.session.add(record_obj)
             processed_records.append(record_obj)
             
-            # Детальное логирование первых 5 записей
-            if index < 5:
-                logging.info(f"=== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПИСИ {index} ===")
-                logging.info(f"ДАННЫЕ ИЗ EXCEL: {dict(row)}")
-                logging.info(f"ДАННЫЕ ДЛЯ БД: {analysis_record}")
+            # Детальное логирование каждой записи
+            logging.info(f"=== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПИСИ {index} ===")
+            logging.info(f"ДАННЫЕ ИЗ EXCEL: {dict(row)}")
+            logging.info(f"ДАННЫЕ ДЛЯ БД: {analysis_record}")
+            
+            # Проверяем типы данных и все поля
+            for key, value in analysis_record.items():
+                logging.info(f"ПОЛЕ В БД: {key}, ЗНАЧЕНИЕ: {value}, ТИП: {type(value).__name__}")
                 
-                # Проверяем типы данных
-                for key, value in analysis_record.items():
-                    if value is not None:
-                        logging.info(f"ПОЛЕ: {key}, ЗНАЧЕНИЕ: {value}, ТИП: {type(value).__name__}")
+            # Логируем сопоставление колонок Excel с полями БД
+            logging.info("СОПОСТАВЛЕНИЕ EXCEL -> БД:")
+            for model_field, excel_column in excel_column_map.items():
+                excel_value = row.get(excel_column)
+                db_value = analysis_record.get(model_field)
+                logging.info(f"  EXCEL: '{excel_column}' ({excel_value}) -> БД: '{model_field}' ({db_value})")
             
             # Периодически коммитим для больших файлов
             if index > 0 and index % 500 == 0:
@@ -751,12 +756,33 @@ def upload_analysis():
         # Проверяем, что реально записалось в БД
         try:
             logging.info("=== ПРОВЕРКА ДАННЫХ В БД ===")
-            first_records = AnalysisData.query.filter_by(batch_id=batch_id).limit(3).all()
-            for i, record in enumerate(first_records):
+            # Получаем все записи для этого batch_id
+            saved_records = AnalysisData.query.filter_by(batch_id=batch_id).all()
+            logging.info(f"В БД сохранено {len(saved_records)} записей из {len(processed_records)} отправленных")
+            
+            # Подробно логируем первые 10 записей
+            for i, record in enumerate(saved_records[:10]):
+                logging.info(f"ЗАПИСЬ {i} В БД:")
                 record_dict = {c.name: getattr(record, c.name) for c in record.__table__.columns}
-                logging.info(f"ЗАПИСЬ {i} В БД: {record_dict}")
+                
+                # Выводим каждое поле отдельно для лучшей читаемости
+                for field_name, field_value in record_dict.items():
+                    if field_value is not None:
+                        if field_name == 'matched_historical_data' and isinstance(field_value, list):
+                            logging.info(f"  {field_name}: {len(field_value)} элементов")
+                        else:
+                            logging.info(f"  {field_name}: {field_value} (тип: {type(field_value).__name__})")
+                    else:
+                        logging.info(f"  {field_name}: NULL")
+                        
+                # Если это первые три записи, проверяем наличие ключевых полей
+                if i < 3:
+                    if not record.mssql_sxclass_name:
+                        logging.warning(f"ЗАПИСЬ {i}: Отсутствует mssql_sxclass_name")
+                    if not record.a_ouid:
+                        logging.warning(f"ЗАПИСЬ {i}: Отсутствует a_ouid")
         except Exception as e:
-            logging.error(f"Ошибка при проверке данных в БД: {str(e)}")
+            logging.error(f"Ошибка при проверке данных в БД: {str(e)}", exc_info=True)
             
         logging.info(f"Все записи успешно сохранены в базу данных")
         
