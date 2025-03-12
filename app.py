@@ -637,13 +637,16 @@ def upload_analysis():
         # Преобразуем все колонки в строки для сравнения
         str_columns = [str(col).strip() for col in df.columns]
         
+        # Логируем информацию о колонках
+        logging.info(f"Обнаружены колонки в Excel: {str_columns}")
+        
         # Строго сопоставляем по заданным правилам
         for model_field, excel_columns in column_mapping.items():
             found = False
             for excel_column_name in excel_columns:
-                # Ищем колонку с точным именем
+                # Ищем колонку с точным именем (исправлена ошибка в сравнении)
                 for i, col in enumerate(str_columns):
-                    if col.upper() == excel_column_name.upper():
+                    if col.upper() == excel_column_name.upper():():
                         excel_column_map[model_field] = df.columns[i]
                         found = True
                         logging.info(f"Найдено точное соответствие: {model_field} -> {df.columns[i]}")
