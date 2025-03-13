@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Настройка соответствия полей</h2>
+    
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Инструкция</h5>
+            <p class="card-text">
+                На этой странице вы можете настроить соответствие между полями базы данных и заголовками Excel файла.
+                Для каждого поля вы можете:
+            </p>
+            <ul>
+                <li>Указать соответствующий заголовок из Excel файла</li>
+                <li>Включить/выключить загрузку этого поля</li>
+            </ul>
+        </div>
+    </div>
+
+    <form id="mappingForm" method="POST" action="{{ url_for('save_field_mapping') }}">
+        <div class="table-responsive">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Поле базы данных</th>
+                        <th>Заголовок в Excel</th>
+                        <th>Загружать</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mapping in mappings %}
+                    <tr>
+                        <td>{{ mapping.db_field }}</td>
+                        <td>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="excel_header_{{ mapping.id }}" 
+                                   value="{{ mapping.excel_header }}"
+                                   required>
+                        </td>
+                        <td>
+                            <div class="form-check">
+                                <input type="checkbox" 
+                                       class="form-check-input" 
+                                       name="is_enabled_{{ mapping.id }}" 
+                                       {% if mapping.is_enabled %}checked{% endif %}>
+                            </div>
+                        </td>
+                        <td>
+                            <button type="button" 
+                                    class="btn btn-sm btn-outline-primary test-mapping" 
+                                    data-field="{{ mapping.db_field }}"
+                                    data-header="{{ mapping.excel_header }}">
+                                Проверить
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="mt-3">
+            <button type="submit" class="btn btn-primary">Сохранить настройки</button>
+        </div>
+    </form>
+</div>
+
+<!-- Модальное окно для тестирования маппинга -->
+<div class="modal fade" id="testMappingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Тестирование маппинга</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="testForm">
+                    <div class="mb-3">
+                        <label class="form-label">Загрузите тестовый Excel файл</label>
+                        <input type="file" class="form-control" id="testFile" accept=".xlsx">
+                    </div>
+                </form>
+                <div id="testResults" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Обработка тестирования маппинга
+    const testButtons = document.querySelectorAll('.test-mapping');
+    const testModal = new bootstrap.Modal(document.getElementById('testMappingModal'));
+    const testForm = document.getElementById('testForm');
+    const testResults = document.getElementById('testResults');
+    let currentField = '';
+    let currentHeader = '';
+
+    testButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            currentField = this.dataset.field;
+            currentHeader = this.dataset.header;
+            testResults.innerHTML = '';
+            testForm.reset();
+            testModal.show();
+        });
+    });
+
+    document.getElementById('testFile').addEventListener('change', async function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('field', currentField);
+        formData.append('header', currentHeader);
+
+        try {
+            const response = await fetch('/api/test_mapping', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                testResults.innerHTML = `
+                    <div class="alert alert-success">
+                        <h6>Результаты тестирования:</h6>
+                        <p>Найдено заголовков: ${result.found_headers}</p>
+                        <p>Пример значения: ${result.sample_value}</p>
+                    </div>
+                `;
+            } else {
+                testResults.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h6>Ошибка:</h6>
+                        <p>${result.error}</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            testResults.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6>Ошибка:</h6>
+                    <p>Произошла ошибка при тестировании</p>
+                </div>
+            `;
+        }
+    });
+});
+</script>
+{% endblock %} 

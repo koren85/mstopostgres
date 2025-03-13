@@ -3,7 +3,7 @@ import logging
 import uuid
 import pandas as pd
 from datetime import datetime
-from app import db
+from database import db
 from models import MigrationClass, ClassificationRule
 from sqlalchemy import func
 

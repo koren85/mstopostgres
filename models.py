@@ -1,5 +1,5 @@
 from datetime import datetime
-from app import db
+from database import db
 
 class MigrationClass(db.Model):
     __tablename__ = 'migration_classes'
@@ -7,29 +7,29 @@ class MigrationClass(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     batch_id = db.Column(db.String(36), nullable=False)  # UUID для группировки загрузок
     file_name = db.Column(db.String(255))  # Имя загруженного файла
-    a_ouid = db.Column(db.BigInteger)
+    a_ouid = db.Column(db.String(255))
     mssql_sxclass_description = db.Column(db.Text)
-    mssql_sxclass_name = db.Column(db.Text)
+    mssql_sxclass_name = db.Column(db.String(255))
     mssql_sxclass_map = db.Column(db.Text)
-    priznak = db.Column(db.Text)
-    system_class = db.Column(db.Boolean)
-    is_link_table = db.Column(db.Boolean)
+    priznak = db.Column(db.String(50))
+    system_class = db.Column(db.String(255))
+    is_link_table = db.Column(db.String(255))
     parent_class = db.Column(db.Text)
     child_classes = db.Column(db.Text)
-    child_count = db.Column(db.Integer)
-    created_date = db.Column(db.DateTime)
+    child_count = db.Column(db.String(255))
+    created_date = db.Column(db.String(255))
     created_by = db.Column(db.Text)
-    modified_date = db.Column(db.DateTime)
+    modified_date = db.Column(db.String(255))
     modified_by = db.Column(db.Text)
     folder_paths = db.Column(db.Text)
-    object_count = db.Column(db.Integer)
-    last_object_created = db.Column(db.DateTime)
-    last_object_modified = db.Column(db.DateTime)
-    attribute_count = db.Column(db.Integer)
+    object_count = db.Column(db.String(255))
+    last_object_created = db.Column(db.String(255))
+    last_object_modified = db.Column(db.String(255))
+    attribute_count = db.Column(db.String(255))
     category = db.Column(db.Text)
     migration_flag = db.Column(db.Text)
     rule_info = db.Column(db.Text)
-    source_system = db.Column(db.Text)
+    source_system = db.Column(db.String(100), nullable=False)
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
     confidence_score = db.Column(db.Float)  # Уверенность классификации
     classified_by = db.Column(db.String(50))  # manual, rule, or ai
@@ -63,13 +63,13 @@ class AnalysisData(db.Model):
     __tablename__ = 'analysis_data'
 
     id = db.Column(db.Integer, primary_key=True)
-    batch_id = db.Column(db.String(36), nullable=False)  # UUID для группировки загрузок
-    file_name = db.Column(db.String(255))  # Имя загруженного файла
+    batch_id = db.Column(db.Integer, nullable=False)
+    file_name = db.Column(db.String(255), nullable=False)
     a_ouid = db.Column(db.String(255))  # Изменено на строковый тип
     mssql_sxclass_description = db.Column(db.Text)
-    mssql_sxclass_name = db.Column(db.Text)
+    mssql_sxclass_name = db.Column(db.String(255))
     mssql_sxclass_map = db.Column(db.Text)
-    priznak = db.Column(db.Text)  # Будет заполняться после анализа
+    priznak = db.Column(db.String(50))
     system_class = db.Column(db.String(255))  # Изменено на строковый тип
     is_link_table = db.Column(db.String(255))  # Изменено на строковый тип
     parent_class = db.Column(db.Text)
@@ -87,10 +87,36 @@ class AnalysisData(db.Model):
     category = db.Column(db.Text)
     migration_flag = db.Column(db.Text)
     rule_info = db.Column(db.Text)
-    source_system = db.Column(db.Text)
+    source_system = db.Column(db.String(100), nullable=False)
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
     confidence_score = db.Column(db.Float)  # Уверенность классификации
     classified_by = db.Column(db.String(50))  # manual, rule, or ai
-    analysis_state = db.Column(db.String(50), default='pending')  # pending, analyzed, conflict
+    analysis_state = db.Column(db.String(20), default='pending')  # pending, analyzed, conflict
     matched_historical_data = db.Column(db.JSON)  # Для хранения информации о найденных совпадениях
     analysis_date = db.Column(db.DateTime)  # Когда был проведен анализ
+
+class FieldMapping(db.Model):
+    __tablename__ = 'field_mappings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    db_field = db.Column(db.String(100), nullable=False, unique=True)
+    excel_header = db.Column(db.String(255), nullable=False)
+    is_enabled = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<FieldMapping {self.db_field} -> {self.excel_header}>'
+
+class AnalysisResult(db.Model):
+    __tablename__ = 'analysis_results'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    batch_id = db.Column(db.String(36), nullable=False)
+    mssql_sxclass_name = db.Column(db.String(255), nullable=False)
+    priznak = db.Column(db.String(50))
+    confidence_score = db.Column(db.Float)
+    analysis_date = db.Column(db.DateTime, default=datetime.utcnow)
+    discrepancies = db.Column(db.JSON)  # Хранение расхождений в формате JSON
+    status = db.Column(db.String(20), default='pending')  # pending, analyzed, confirmed
+    analyzed_by = db.Column(db.String(50))  # rule, historical, manual

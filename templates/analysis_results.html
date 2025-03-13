@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Результаты анализа</h2>
+    
+    <!-- Статистика -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark status-card" data-status="no_matches" style="cursor: pointer;">
+                <div class="card-body">
+                    <h5 class="card-title">Не найдено в исторических данных</h5>
+                    <h2 class="card-text">{{ status_counts.no_matches }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-danger text-white status-card" data-status="discrepancies" style="cursor: pointer;">
+                <div class="card-body">
+                    <h5 class="card-title">Есть расхождения в признаках</h5>
+                    <h2 class="card-text">{{ status_counts.discrepancies }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white status-card" data-status="analyzed" style="cursor: pointer;">
+                <div class="card-body">
+                    <h5 class="card-title">Проанализировано</h5>
+                    <h2 class="card-text">{{ status_counts.analyzed }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white status-card" data-status="confirmed" style="cursor: pointer;">
+                <div class="card-body">
+                    <h5 class="card-title">Подтверждено</h5>
+                    <h2 class="card-text">{{ status_counts.confirmed }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Фильтры -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" class="row">
+                <div class="col-md-3">
+                    <select class="form-select" name="status" id="statusFilter">
+                        <option value="">Все статусы</option>
+                        <option value="no_matches" {% if current_status == 'no_matches' %}selected{% endif %}>Не найдено в исторических данных</option>
+                        <option value="discrepancies" {% if current_status == 'discrepancies' %}selected{% endif %}>Есть расхождения в признаках</option>
+                        <option value="analyzed" {% if current_status == 'analyzed' %}selected{% endif %}>Проанализировано</option>
+                        <option value="confirmed" {% if current_status == 'confirmed' %}selected{% endif %}>Подтверждено</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <input type="text" class="form-control" name="search" id="searchInput" placeholder="Поиск по имени класса..." value="{{ current_search or '' }}">
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search"></i> Применить фильтры
+                    </button>
+                </div>
+                <div class="col-md-3">
+                    <a href="/analysis_results/{{ batch_id }}" class="btn btn-secondary">
+                        <i class="bi bi-x-circle"></i> Сбросить фильтры
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Таблица результатов -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0">Результаты анализа</h5>
+                <div>
+                    <button id="applySelected" class="btn btn-primary me-2" disabled>
+                        Применить к выбранным
+                    </button>
+                    <button id="applyAll" class="btn btn-success">
+                        Применить ко всем
+                    </button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>
+                                <input type="checkbox" id="selectAll" class="form-check-input">
+                            </th>
+                            <th>Имя класса</th>
+                            <th>Признак</th>
+                            <th>Уверенность</th>
+                            <th>Статус</th>
+                            <th>Расхождения</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for result in results %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input result-checkbox" 
+                                       data-id="{{ result.id }}"
+                                       data-status="{{ result.status }}"
+                                       data-discrepancies="{{ result.discrepancies|tojson if result.discrepancies else '{}' }}">
+                            </td>
+                            <td>{{ result.mssql_sxclass_name }}</td>
+                            <td>
+                                <select class="form-select priznak-select" data-id="{{ result.id }}">
+                                    <option value="">Выберите значение</option>
+                                    {% for priznak in priznaks %}
+                                    <option value="{{ priznak }}" {% if result.priznak == priznak %}selected{% endif %}>
+                                        {{ priznak }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>{{ "%.2f"|format(result.confidence_score) if result.confidence_score else '' }}</td>
+                            <td>
+                                {% if result.status == 'pending' %}
+                                    {% if result.discrepancies %}
+                                        <span class="badge bg-warning">Есть расхождения</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Не проанализировано</span>
+                                    {% endif %}
+                                {% elif result.status == 'analyzed' %}
+                                    <span class="badge bg-success">Проанализировано</span>
+                                {% elif result.status == 'confirmed' %}
+                                    <span class="badge bg-primary">Подтверждено</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if result.discrepancies %}
+                                <div class="discrepancies-info">
+                                    {% for batch_id, priznak in result.discrepancies.items() %}
+                                    <div class="discrepancy-item">
+                                        <small class="text-muted">{{ batch_sources[batch_id] }}:</small> {{ priznak }}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-success save-priznak" data-id="{{ result.id }}">
+                                    Сохранить
+                                </button>
+                                {% if result.status == 'analyzed' %}
+                                <button class="btn btn-sm btn-primary confirm-result" data-id="{{ result.id }}">
+                                    Подтвердить
+                                </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для массового применения значения -->
+    <div class="modal fade" id="applyValueModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Применить значение признака</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Выберите значение из исторических данных:</label>
+                        <select class="form-select" id="batchValueSelect">
+                            <option value="">Выберите значение</option>
+                        </select>
+                    </div>
+                    <div class="alert alert-info">
+                        <small>Это действие обновит значение признака для выбранных записей</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="button" class="btn btn-primary" id="applySelectedValue">Применить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Пагинация -->
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Page navigation" class="mt-4">
+        <ul class="pagination justify-content-center">
+            {% if pagination.has_prev %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.prev_num, status=current_status, search=current_search) }}">Предыдущая</a>
+            </li>
+            {% endif %}
+            
+            {% for page in pagination.iter_pages() %}
+                {% if page %}
+                    <li class="page-item {% if page == pagination.page %}active{% endif %}">
+                        <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, search=current_search) }}">{{ page }}</a>
+                    </li>
+                {% else %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                {% endif %}
+            {% endfor %}
+            
+            {% if pagination.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.next_num, status=current_status, search=current_search) }}">Следующая</a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Обработка кликов по плашкам статистики
+    document.querySelectorAll('.status-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const status = this.dataset.status;
+            const statusFilter = document.getElementById('statusFilter');
+            
+            // Устанавливаем значение в селект
+            statusFilter.value = status;
+            
+            // Добавляем визуальный эффект нажатия
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = 'scale(1)';
+            }, 100);
+            
+            // Отправляем форму
+            statusFilter.form.submit();
+        });
+    });
+
+    // Экспорт в Excel
+    document.getElementById('exportBtn').addEventListener('click', function() {
+        window.location.href = `/api/export_analysis/{{ batch_id }}`;
+    });
+
+    // Подтверждение результата
+    document.querySelectorAll('.confirm-result').forEach(button => {
+        button.addEventListener('click', function() {
+            const resultId = this.dataset.resultId;
+            
+            fetch(`/api/confirm_analysis_result/${resultId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Ошибка при подтверждении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка при подтверждении');
+            });
+        });
+    });
+
+    // Обработчик для сохранения значения priznak
+    document.querySelectorAll('.save-priznak').forEach(button => {
+        button.addEventListener('click', function() {
+            const resultId = this.dataset.resultId;
+            const select = document.querySelector(`.priznak-select[data-id="${resultId}"]`);
+            const newPriznak = select.value;
+
+            fetch(`/api/update_priznak/${resultId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ priznak: newPriznak })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('Ошибка при сохранении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка при сохранении');
+            });
+        });
+    });
+
+    // Функция для обновления списка значений в модальном окне
+    function updateBatchValueSelect(discrepancies) {
+        const select = document.getElementById('batchValueSelect');
+        select.innerHTML = '<option value="">Выберите значение</option>';
+        
+        // Собираем уникальные значения из расхождений
+        const uniqueValues = new Set();
+        Object.values(discrepancies).forEach(value => uniqueValues.add(value));
+        
+        // Добавляем значения в select
+        uniqueValues.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            select.appendChild(option);
+        });
+    }
+
+    // Обработчик для кнопки "Применить к выбранным"
+    document.getElementById('applySelected').addEventListener('click', function() {
+        const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
+        if (selectedCheckboxes.length === 0) return;
+        
+        // Собираем все расхождения из выбранных записей
+        const allDiscrepancies = {};
+        selectedCheckboxes.forEach(checkbox => {
+            const discrepancies = JSON.parse(checkbox.dataset.discrepancies);
+            Object.assign(allDiscrepancies, discrepancies);
+        });
+        
+        // Обновляем список значений в модальном окне
+        updateBatchValueSelect(allDiscrepancies);
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('applyValueModal'));
+        modal.show();
+    });
+
+    // Обработчик для кнопки "Применить ко всем"
+    document.getElementById('applyAll').addEventListener('click', function() {
+        const allCheckboxes = document.querySelectorAll('.result-checkbox');
+        if (allCheckboxes.length === 0) return;
+        
+        // Собираем все расхождения
+        const allDiscrepancies = {};
+        allCheckboxes.forEach(checkbox => {
+            const discrepancies = JSON.parse(checkbox.dataset.discrepancies);
+            Object.assign(allDiscrepancies, discrepancies);
+        });
+        
+        // Обновляем список значений в модальном окне
+        updateBatchValueSelect(allDiscrepancies);
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('applyValueModal'));
+        modal.show();
+    });
+
+    // Обработчик для кнопки "Применить" в модальном окне
+    document.getElementById('applySelectedValue').addEventListener('click', async function() {
+        const selectedValue = document.getElementById('batchValueSelect').value;
+        if (!selectedValue) return;
+        
+        const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
+        const ids = Array.from(selectedCheckboxes).map(checkbox => checkbox.dataset.id);
+        
+        try {
+            const response = await fetch('/api/update_priznak_batch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ids: ids,
+                    priznak: selectedValue
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Ошибка при обновлении значений: ' + data.error);
+            }
+        } catch (error) {
+            alert('Ошибка при обновлении значений: ' + error);
+        }
+    });
+
+    // Обработчик для чекбокса "Выбрать все"
+    document.getElementById('selectAll').addEventListener('change', function() {
+        const checkboxes = document.querySelectorAll('.result-checkbox');
+        checkboxes.forEach(checkbox => checkbox.checked = this.checked);
+        updateApplyButton();
+    });
+
+    // Обработчик для отдельных чекбоксов
+    document.querySelectorAll('.result-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateApplyButton);
+    });
+
+    // Функция для обновления состояния кнопки "Применить к выбранным"
+    function updateApplyButton() {
+        const selectedCount = document.querySelectorAll('.result-checkbox:checked').length;
+        document.getElementById('applySelected').disabled = selectedCount === 0;
+    }
+});
+</script>
+{% endblock %} 

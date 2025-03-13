@@ -5,23 +5,20 @@
     <div class="col-md-8 offset-md-2">
         <div class="card">
             <div class="card-header">
-                <h5 class="card-title mb-0">Загрузка данных миграции</h5>
+                <h5 class="card-title mb-0">Загрузка исторических данных</h5>
             </div>
             <div class="card-body">
-                <form id="uploadForm" method="post" enctype="multipart/form-data">
+                <form id="historyUploadForm">
                     <div class="mb-3">
-                        <label for="sourceSystem" class="form-label">Источник данных</label>
-                        <input type="text" class="form-control" id="sourceSystem" name="source_system" 
-                               placeholder="Например: СДУ Воронеж" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="excelFile" class="form-label">Excel файл с данными</label>
-                        <input type="file" class="form-control" id="excelFile" name="file" 
-                               accept=".xlsx" required>
+                        <label for="historyFile" class="form-label">Excel файл с данными</label>
+                        <input type="file" class="form-control" id="historyFile" accept=".xlsx" required>
                         <div class="form-text">Поддерживаются только файлы .xlsx</div>
                     </div>
-
+                    <div class="mb-3">
+                        <label for="historySourceSystem" class="form-label">Источник данных</label>
+                        <input type="text" class="form-control" id="historySourceSystem" 
+                               placeholder="Например: СДУ Воронеж" required>
+                    </div>
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-upload"></i> Загрузить
                     </button>
@@ -36,13 +33,59 @@
                     </div>
                 </div>
 
-                <div id="uploadResult" class="alert mt-3 d-none"></div>
-
-                </div>
+                <div id="historyUploadStatus" class="mt-3"></div>
             </div>
         </div>
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+<script>
+    // Обработка загрузки исторических данных
+    document.getElementById('historyUploadForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const fileInput = document.getElementById('historyFile');
+        const sourceSystemInput = document.getElementById('historySourceSystem');
+        const statusDiv = document.getElementById('historyUploadStatus');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        
+        if (!fileInput.files.length) {
+            statusDiv.innerHTML = '<div class="alert alert-danger">Пожалуйста, выберите файл</div>';
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('source_system', sourceSystemInput.value);
+        
+        statusDiv.innerHTML = '<div class="alert alert-info">Загрузка файла...</div>';
+        progressContainer.classList.remove('d-none');
+        progressBar.style.width = '0%';
+        
+        fetch('/upload_history', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                fileInput.value = '';
+                sourceSystemInput.value = '';
+                progressBar.style.width = '100%';
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">Ошибка: ${data.error}</div>`;
+            }
+        })
+        .catch(error => {
+            statusDiv.innerHTML = `<div class="alert alert-danger">Ошибка при загрузке: ${error}</div>`;
+        })
+        .finally(() => {
+            setTimeout(() => {
+                progressContainer.classList.add('d-none');
+            }, 1000);
+        });
+    });
+</script>
 {% endblock %}

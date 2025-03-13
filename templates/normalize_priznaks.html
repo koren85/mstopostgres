@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Нормализация значений признака</h2>
+    
+    <!-- Статистика -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5>Всего уникальных значений: {{ priznaks|length }}</h5>
+        </div>
+    </div>
+
+    <!-- Форма нормализации -->
+    <div class="card">
+        <div class="card-body">
+            <form id="normalizeForm">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h5>Выберите значения для нормализации:</h5>
+                        <div class="list-group" style="max-height: 400px; overflow-y: auto;">
+                            {% for priznak in priznaks %}
+                            <label class="list-group-item">
+                                <input class="form-check-input me-1 priznak-checkbox" 
+                                       type="checkbox" 
+                                       value="{{ priznak.value }}"
+                                       data-count="{{ priznak.count }}">
+                                {{ priznak.value }} ({{ priznak.count }} записей)
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h5>Выберите эталонное значение:</h5>
+                        <select class="form-select" id="targetPriznak" disabled>
+                            <option value="">Сначала выберите значения для нормализации</option>
+                        </select>
+                        <div class="mt-3">
+                            <div class="alert alert-info">
+                                <h6>Будет изменено записей: <span id="affectedCount">0</span></h6>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <button type="submit" class="btn btn-primary" id="normalizeBtn" disabled>
+                            <i class="bi bi-check2-all"></i> Нормализовать
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.priznak-checkbox');
+    const targetSelect = document.getElementById('targetPriznak');
+    const normalizeBtn = document.getElementById('normalizeBtn');
+    const affectedCount = document.getElementById('affectedCount');
+    let totalAffected = 0;
+
+    // Обработчик изменения чекбоксов
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const selectedCheckboxes = document.querySelectorAll('.priznak-checkbox:checked');
+            
+            // Обновляем список в select
+            targetSelect.innerHTML = '<option value="">Выберите эталонное значение</option>';
+            selectedCheckboxes.forEach(selected => {
+                const option = document.createElement('option');
+                option.value = selected.value;
+                option.text = `${selected.value} (${selected.dataset.count} записей)`;
+                targetSelect.appendChild(option);
+            });
+            
+            // Активируем/деактивируем select и кнопку
+            targetSelect.disabled = selectedCheckboxes.length < 2;
+            normalizeBtn.disabled = selectedCheckboxes.length < 2 || !targetSelect.value;
+            
+            // Подсчитываем общее количество затрагиваемых записей
+            totalAffected = 0;
+            selectedCheckboxes.forEach(cb => {
+                if (cb.value !== targetSelect.value) {
+                    totalAffected += parseInt(cb.dataset.count);
+                }
+            });
+            affectedCount.textContent = totalAffected;
+        });
+    });
+
+    // Обработчик изменения целевого значения
+    targetSelect.addEventListener('change', function() {
+        normalizeBtn.disabled = !this.value;
+        
+        // Пересчитываем количество затрагиваемых записей
+        totalAffected = 0;
+        const selectedCheckboxes = document.querySelectorAll('.priznak-checkbox:checked');
+        selectedCheckboxes.forEach(cb => {
+            if (cb.value !== this.value) {
+                totalAffected += parseInt(cb.dataset.count);
+            }
+        });
+        affectedCount.textContent = totalAffected;
+    });
+
+    // Обработчик отправки формы
+    document.getElementById('normalizeForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const selectedValues = Array.from(document.querySelectorAll('.priznak-checkbox:checked'))
+            .map(cb => cb.value);
+        const targetValue = targetSelect.value;
+
+        if (!targetValue || selectedValues.length < 2) {
+            alert('Выберите как минимум два значения и укажите эталонное значение');
+            return;
+        }
+
+        // Отправляем запрос на нормализацию
+        fetch('/api/normalize_priznaks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                values: selectedValues,
+                target_value: targetValue
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Нормализация успешно выполнена');
+                location.reload();
+            } else {
+                alert('Ошибка при нормализации: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            alert('Произошла ошибка при нормализации');
+        });
+    });
+});
+</script>
+{% endblock %} 

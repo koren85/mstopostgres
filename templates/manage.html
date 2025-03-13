@@ -7,31 +7,40 @@
     <!-- Фильтры -->
     <div class="card mb-4">
         <div class="card-body">
-            <form id="filterForm" class="row g-3">
+            <form method="GET" class="row">
                 <div class="col-md-3">
-                    <label class="form-label">Источник данных</label>
                     <select class="form-select" name="source_system">
-                        <option value="">Все</option>
+                        <option value="">Все источники</option>
                         {% for source in sources %}
-                        <option value="{{ source }}">{{ source }}</option>
+                        <option value="{{ source }}" {% if source == request.args.get('source_system') %}selected{% endif %}>
+                            {{ source }}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">Признак</label>
-                    <input type="text" class="form-control" name="priznak" placeholder="Поиск по признаку">
+                    <select class="form-select" name="priznak">
+                        <option value="">Все признаки</option>
+                        {% for priznak in priznaks %}
+                        <option value="{{ priznak }}" {% if priznak == current_priznak %}selected{% endif %}>
+                            {{ priznak }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">Название класса</label>
-                    <input type="text" class="form-control" name="class_name" placeholder="Поиск по названию">
+                    <input type="text" class="form-control" name="class_name" placeholder="Поиск по имени класса..." value="{{ request.args.get('class_name', '') }}">
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label">Дата загрузки</label>
-                    <input type="date" class="form-control" name="upload_date">
+                    <input type="date" class="form-control" name="upload_date" value="{{ request.args.get('upload_date', '') }}">
                 </div>
-                <div class="col-12">
-                    <button type="submit" class="btn btn-primary">Применить фильтры</button>
-                    <button type="reset" class="btn btn-secondary">Сбросить</button>
+                <div class="col-12 mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search"></i> Применить фильтры
+                    </button>
+                    <a href="{{ url_for('manage') }}" class="btn btn-secondary">
+                        <i class="bi bi-x-circle"></i> Сбросить фильтры
+                    </a>
                 </div>
             </form>
         </div>
