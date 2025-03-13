@@ -8,6 +8,7 @@ import pandas as pd  # Явный импорт pandas
 from dotenv import load_dotenv  # Добавляем импорт dotenv
 from database import db  # Импортируем db из database.py
 from routes import init_routes
+import json
 # Проверяем наличие openpyxl
 try:
     import openpyxl
@@ -180,6 +181,13 @@ def create_app():
 
         # Initialize routes
         init_routes(app)
+
+    @app.template_filter('from_json')
+    def from_json_filter(s):
+        try:
+            return json.loads(s)
+        except (TypeError, ValueError):
+            return {}
 
     return app
 

@@ -1,0 +1,142 @@
+<!-- Статистика -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark status-card" data-status="no_matches" style="cursor: pointer;">
+            <div class="card-body">
+                <h5 class="card-title">Не найдено в исторических данных</h5>
+                <h2 class="card-text">{{ status_counts.no_matches }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-danger text-white status-card" data-status="discrepancies" style="cursor: pointer;">
+            <div class="card-body">
+                <h5 class="card-title">Есть расхождения в признаках</h5>
+                <h2 class="card-text">{{ status_counts.discrepancies }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white status-card" data-status="analyzed" style="cursor: pointer;">
+            <div class="card-body">
+                <h5 class="card-title">Проанализировано</h5>
+                <h2 class="card-text">{{ status_counts.analyzed }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white status-card" data-status="confirmed" style="cursor: pointer;">
+            <div class="card-body">
+                <h5 class="card-title">Подтверждено</h5>
+                <h2 class="card-text">{{ status_counts.confirmed }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Статистика расхождений -->
+{% if current_status == 'discrepancies' %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Статистика по расхождениям</h5>
+        <div class="row">
+            {% for source, priznaks in discrepancy_stats.items() %}
+            <div class="col-md-4 mb-3">
+                <div class="card h-100 discrepancy-card" data-source="{{ source }}" style="cursor: pointer;">
+                    <div class="card-body">
+                        <h6 class="card-title">Источник: {{ source }}</h6>
+                        <div class="discrepancy-group">
+                            {% for priznak, count in priznaks.items() %}
+                                <div class="discrepancy-item mb-2">
+                                    <strong>{{ priznak }}:</strong> {{ count }} записей
+                                </div>
+                            {% endfor %}
+                        </div>
+                        <p class="card-text mt-3">Всего записей: {{ priznaks.values()|sum }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if results %}
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Имя класса</th>
+                <th>Признак</th>
+                <th>Статус</th>
+                <th>Расхождения</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for result in results %}
+                <tr>
+                    <td>{{ result.mssql_sxclass_name }}</td>
+                    <td>
+                        {% if result.priznak %}
+                            {{ result.priznak }}
+                        {% else %}
+                            <span class="text-muted">Не определен</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if result.status == 'analyzed' %}bg-success{% elif result.status == 'pending' %}bg-warning{% else %}bg-secondary{% endif %}">
+                            {{ result.status }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if result.discrepancies %}
+                            <ul class="list-unstyled mb-0">
+                                {% for batch_id, priznak in result.discrepancies.items() %}
+                                    <li>
+                                        <small class="text-muted">{{ batch_sources.get(batch_id, 'Неизвестный источник') }}:</small>
+                                        {{ priznak }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <span class="text-muted">Нет расхождений</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if result.status == 'pending' %}
+                            <button class="btn btn-sm btn-primary analyze-btn" data-id="{{ result.id }}">
+                                Анализировать
+                            </button>
+                        {% endif %}
+                        {% if result.status == 'analyzed' %}
+                            <button class="btn btn-sm btn-success confirm-btn" data-id="{{ result.id }}">
+                                Подтвердить
+                            </button>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                {% for page in pagination.iter_pages() %}
+                    {% if page %}
+                        <li class="page-item {% if page == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, discrepancy_filter=current_discrepancy, search=current_search) }}">{{ page }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+        </nav>
+    {% endif %}
+{% else %}
+    <div class="alert alert-info">
+        Записи не найдены
+    </div>
+{% endif %} 

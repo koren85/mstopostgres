@@ -43,7 +43,8 @@
     <!-- Фильтры -->
     <div class="card mb-4">
         <div class="card-body">
-            <form method="GET" class="row">
+            <form method="GET" class="row" id="filterForm">
+                <input type="hidden" name="batch_id" value="{{ batch_id }}">
                 <div class="col-md-3">
                     <select class="form-select" name="status" id="statusFilter">
                         <option value="">Все статусы</option>
@@ -57,18 +58,52 @@
                     <input type="text" class="form-control" name="search" id="searchInput" placeholder="Поиск по имени класса..." value="{{ current_search or '' }}">
                 </div>
                 <div class="col-md-3">
+                    <select class="form-select" name="discrepancy_filter" id="discrepancyFilter">
+                        <option value="">Все расхождения</option>
+                        {% for discrepancy_pattern, stats in discrepancy_stats.items() %}
+                        <option value="{{ discrepancy_pattern }}" {% if current_discrepancy == discrepancy_pattern %}selected{% endif %}>
+                            {{ stats.sources|join(', ') }} ({{ stats.count }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-search"></i> Применить фильтры
                     </button>
                 </div>
                 <div class="col-md-3">
-                    <a href="/analysis_results/{{ batch_id }}" class="btn btn-secondary">
+                    <button type="button" class="btn btn-secondary" id="resetFilters">
                         <i class="bi bi-x-circle"></i> Сбросить фильтры
-                    </a>
+                    </button>
                 </div>
             </form>
         </div>
     </div>
+    
+    <!-- Статистика расхождений -->
+    {% if current_status == 'discrepancies' %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Статистика по расхождениям</h5>
+            <div class="row">
+                {% for discrepancy_pattern, stats in discrepancy_stats.items() %}
+                <div class="col-md-4 mb-3">
+                    <div class="card h-100 discrepancy-card" data-pattern="{{ discrepancy_pattern }}" style="cursor: pointer;">
+                        <div class="card-body">
+                            <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
+                            <p class="card-text">
+                                Признак: {{ stats.priznaks|join(', ') }}<br>
+                                Количество записей: {{ stats.count }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Таблица результатов -->
     <div class="card mb-4">
@@ -136,9 +171,17 @@
                             <td>
                                 {% if result.discrepancies %}
                                 <div class="discrepancies-info">
-                                    {% for batch_id, priznak in result.discrepancies.items() %}
+                                    {% set grouped_discrepancies = {} %}
+                                    {% for historical_batch_id, priznak in result.discrepancies.items() %}
+                                        {% if priznak not in grouped_discrepancies %}
+                                            {% set grouped_discrepancies = grouped_discrepancies.update({priznak: []}) or grouped_discrepancies %}
+                                        {% endif %}
+                                        {% set _ = grouped_discrepancies[priznak].append(batch_sources[historical_batch_id]) %}
+                                    {% endfor %}
+                                    
+                                    {% for priznak, sources in grouped_discrepancies.items() %}
                                     <div class="discrepancy-item">
-                                        <small class="text-muted">{{ batch_sources[batch_id] }}:</small> {{ priznak }}
+                                        <small class="text-muted">{{ sources|join(', ') }}:</small> {{ priznak }}
                                     </div>
                                     {% endfor %}
                                 </div>
@@ -221,6 +264,22 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Обработка сброса фильтров
+    document.getElementById('resetFilters').addEventListener('click', function() {
+        const form = document.getElementById('filterForm');
+        const statusFilter = document.getElementById('statusFilter');
+        const searchInput = document.getElementById('searchInput');
+        const discrepancyFilter = document.getElementById('discrepancyFilter');
+        
+        // Очищаем значения фильтров
+        statusFilter.value = '';
+        searchInput.value = '';
+        discrepancyFilter.value = '';
+        
+        // Отправляем форму
+        form.submit();
+    });
+
     // Обработка кликов по плашкам статистики
     document.querySelectorAll('.status-card').forEach(card => {
         card.addEventListener('click', function() {
@@ -407,6 +466,26 @@ document.addEventListener('DOMContentLoaded', function() {
         const selectedCount = document.querySelectorAll('.result-checkbox:checked').length;
         document.getElementById('applySelected').disabled = selectedCount === 0;
     }
+
+    // Обработка кликов по карточкам расхождений
+    document.querySelectorAll('.discrepancy-card').forEach(card => {
+        card.addEventListener('click', function() {
+            const pattern = this.dataset.pattern;
+            const discrepancyFilter = document.getElementById('discrepancyFilter');
+            
+            // Устанавливаем значение в селект
+            discrepancyFilter.value = pattern;
+            
+            // Добавляем визуальный эффект нажатия
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = 'scale(1)';
+            }, 100);
+            
+            // Отправляем форму
+            discrepancyFilter.form.submit();
+        });
+    });
 });
 </script>
 {% endblock %} 

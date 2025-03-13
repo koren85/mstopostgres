@@ -865,6 +865,8 @@ def init_routes(app):
             
             # Применяем фильтры, если они есть
             status_filter = request.args.get('status')
+            current_discrepancy = request.args.get('discrepancy_filter')
+            
             if status_filter:
                 if status_filter == 'no_matches':
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.is_(None))
@@ -872,6 +874,10 @@ def init_routes(app):
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
                 else:
                     query = query.filter(AnalysisResult.status == status_filter)
+            
+            # Применяем фильтр по расхождениям
+            if current_discrepancy:
+                query = query.filter(AnalysisResult.discrepancies == current_discrepancy)
             
             # Применяем поиск, если он есть
             search = request.args.get('search')
@@ -893,6 +899,38 @@ def init_routes(app):
                 'confirmed': len([r for r in all_results if r.status == 'confirmed'])
             }
 
+            # Получаем статистику по расхождениям
+            discrepancy_stats = {}
+            for result in all_results:
+                if result.discrepancies:
+                    # Создаем ключ для группировки расхождений
+                    discrepancy_key = str(result.discrepancies)
+                    if discrepancy_key not in discrepancy_stats:
+                        discrepancy_stats[discrepancy_key] = {
+                            'count': 0,
+                            'sources': set(),
+                            'priznaks': set()
+                        }
+                    
+                    # Увеличиваем счетчик
+                    discrepancy_stats[discrepancy_key]['count'] += 1
+                    
+                    # Добавляем источники и признаки
+                    for historical_batch_id, priznak in result.discrepancies.items():
+                        # Получаем source_system для исторического batch_id
+                        source = db.session.query(MigrationClass.source_system).filter_by(
+                            batch_id=historical_batch_id
+                        ).first()
+                        if source:
+                            discrepancy_stats[discrepancy_key]['sources'].add(source[0])
+                        discrepancy_stats[discrepancy_key]['priznaks'].add(priznak)
+
+            # Преобразуем множества в списки для JSON-сериализации
+            for key in discrepancy_stats:
+                discrepancy_stats[key]['sources'] = list(discrepancy_stats[key]['sources'])
+                discrepancy_stats[key]['priznaks'] = list(discrepancy_stats[key]['priznaks'])
+                discrepancy_stats[key]['count'] = discrepancy_stats[key]['count']
+
             # Получаем список уникальных значений priznak из исторических данных
             priznaks = db.session.query(MigrationClass.priznak).distinct().filter(
                 MigrationClass.priznak.isnot(None)
@@ -903,13 +941,13 @@ def init_routes(app):
             batch_sources = {}
             for result in all_results:
                 if result.discrepancies:
-                    for batch_id in result.discrepancies.keys():
-                        if batch_id not in batch_sources:
-                            # Получаем source_system для этого batch_id
+                    for historical_batch_id in result.discrepancies.keys():
+                        if historical_batch_id not in batch_sources:
+                            # Получаем source_system для этого batch_id из исторических данных
                             source = db.session.query(MigrationClass.source_system).filter_by(
-                                batch_id=batch_id
+                                batch_id=historical_batch_id
                             ).first()
-                            batch_sources[batch_id] = source[0] if source else 'Неизвестный источник'
+                            batch_sources[historical_batch_id] = source[0] if source else 'Неизвестный источник'
             
             return render_template('analysis_results.html',
                                  results=pagination.items,
@@ -918,6 +956,8 @@ def init_routes(app):
                                  batch_id=batch_id,
                                  current_status=status_filter,
                                  current_search=search,
+                                 current_discrepancy=current_discrepancy,
+                                 discrepancy_stats=discrepancy_stats,
                                  priznaks=priznaks,
                                  batch_sources=batch_sources)
             
