@@ -52,7 +52,7 @@
                                 </div>
                             {% endfor %}
                         </div>
-                        <p class="card-text mt-3">Всего записей: {{ priznaks.values()|sum }}</p>
+                        <p class="card-text mt-3">Всего записей: {{ priznaks|length }}</p>
                     </div>
                 </div>
             </div>
@@ -62,12 +62,17 @@
 </div>
 {% endif %}
 
-{% if results %}
-    <table class="table table-striped">
+<!-- Таблица результатов -->
+<div class="table-responsive">
+    <table class="table table-hover">
         <thead>
             <tr>
+                <th>
+                    <input type="checkbox" id="selectAll" class="form-check-input">
+                </th>
                 <th>Имя класса</th>
                 <th>Признак</th>
+                <th>Уверенность</th>
                 <th>Статус</th>
                 <th>Расхождения</th>
                 <th>Действия</th>
@@ -75,68 +80,98 @@
         </thead>
         <tbody>
             {% for result in results %}
-                <tr>
-                    <td>{{ result.mssql_sxclass_name }}</td>
-                    <td>
-                        {% if result.priznak %}
-                            {{ result.priznak }}
-                        {% else %}
-                            <span class="text-muted">Не определен</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <span class="badge {% if result.status == 'analyzed' %}bg-success{% elif result.status == 'pending' %}bg-warning{% else %}bg-secondary{% endif %}">
-                            {{ result.status }}
-                        </span>
-                    </td>
-                    <td>
+            <tr>
+                <td>
+                    <input type="checkbox" class="form-check-input result-checkbox" 
+                           data-id="{{ result.id }}"
+                           data-status="{{ result.status }}"
+                           data-discrepancies="{{ result.discrepancies|tojson if result.discrepancies else '{}' }}">
+                </td>
+                <td>{{ result.mssql_sxclass_name }}</td>
+                <td>
+                    <select class="form-select priznak-select" data-id="{{ result.id }}">
+                        <option value="">Выберите значение</option>
+                        {% for priznak in priznaks %}
+                        <option value="{{ priznak }}" {% if result.priznak == priznak %}selected{% endif %}>
+                            {{ priznak }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </td>
+                <td>{{ "%.2f"|format(result.confidence_score) if result.confidence_score else '' }}</td>
+                <td>
+                    {% if result.status == 'pending' %}
                         {% if result.discrepancies %}
-                            <ul class="list-unstyled mb-0">
-                                {% for batch_id, priznak in result.discrepancies.items() %}
-                                    <li>
-                                        <small class="text-muted">{{ batch_sources.get(batch_id, 'Неизвестный источник') }}:</small>
-                                        {{ priznak }}
-                                    </li>
-                                {% endfor %}
-                            </ul>
+                            <span class="badge bg-warning">Есть расхождения</span>
                         {% else %}
-                            <span class="text-muted">Нет расхождений</span>
+                            <span class="badge bg-secondary">Не проанализировано</span>
                         {% endif %}
-                    </td>
-                    <td>
-                        {% if result.status == 'pending' %}
-                            <button class="btn btn-sm btn-primary analyze-btn" data-id="{{ result.id }}">
-                                Анализировать
-                            </button>
-                        {% endif %}
-                        {% if result.status == 'analyzed' %}
-                            <button class="btn btn-sm btn-success confirm-btn" data-id="{{ result.id }}">
-                                Подтвердить
-                            </button>
-                        {% endif %}
-                    </td>
-                </tr>
+                    {% elif result.status == 'analyzed' %}
+                        <span class="badge bg-success">Проанализировано</span>
+                    {% elif result.status == 'confirmed' %}
+                        <span class="badge bg-primary">Подтверждено</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if result.discrepancies %}
+                    <div class="discrepancies-info">
+                        {% set grouped_discrepancies = {} %}
+                        {% for historical_batch_id, priznak in result.discrepancies.items() %}
+                            {% if priznak not in grouped_discrepancies %}
+                                {% set grouped_discrepancies = grouped_discrepancies.update({priznak: []}) or grouped_discrepancies %}
+                            {% endif %}
+                            {% set _ = grouped_discrepancies[priznak].append(batch_sources[historical_batch_id]) %}
+                        {% endfor %}
+                        
+                        {% for priznak, sources in grouped_discrepancies.items() %}
+                        <div class="discrepancy-item">
+                            <small class="text-muted">{{ sources|join(', ') }}:</small> {{ priznak }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-success save-priznak" data-id="{{ result.id }}">
+                        Сохранить
+                    </button>
+                    {% if result.status == 'analyzed' %}
+                    <button class="btn btn-sm btn-primary confirm-result" data-id="{{ result.id }}">
+                        Подтвердить
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </tbody>
     </table>
+</div>
 
-    {% if pagination.pages > 1 %}
-        <nav aria-label="Page navigation">
-            <ul class="pagination justify-content-center">
-                {% for page in pagination.iter_pages() %}
-                    {% if page %}
-                        <li class="page-item {% if page == pagination.page %}active{% endif %}">
-                            <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, discrepancy_filter=current_discrepancy, search=current_search) }}">{{ page }}</a>
-                        </li>
-                    {% else %}
-                        <li class="page-item disabled"><span class="page-link">...</span></li>
-                    {% endif %}
-                {% endfor %}
-            </ul>
-        </nav>
-    {% endif %}
-{% else %}
-    <div class="alert alert-info">
-        Записи не найдены
-    </div>
+<!-- Пагинация -->
+{% if pagination.pages > 1 %}
+<nav aria-label="Page navigation" class="mt-4">
+    <ul class="pagination justify-content-center">
+        {% if pagination.has_prev %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.prev_num, status=current_status, search=current_search) }}">Предыдущая</a>
+        </li>
+        {% endif %}
+        
+        {% for page in pagination.iter_pages() %}
+            {% if page %}
+                <li class="page-item {% if page == pagination.page %}active{% endif %}">
+                    <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, search=current_search) }}">{{ page }}</a>
+                </li>
+            {% else %}
+                <li class="page-item disabled"><span class="page-link">...</span></li>
+            {% endif %}
+        {% endfor %}
+        
+        {% if pagination.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.next_num, status=current_status, search=current_search) }}">Следующая</a>
+        </li>
+        {% endif %}
+    </ul>
+</nav>
 {% endif %} 
