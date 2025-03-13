@@ -698,7 +698,12 @@ def upload_analysis():
             analysis_record['source_system'] = source_system
             analysis_record['upload_date'] = datetime.utcnow()
             analysis_record['analysis_state'] = 'pending'
-            analysis_record['matched_historical_data'] = []
+            analysis_record['matched_historical_data'] = '[]'  # Пустой JSON в виде строки
+            
+            logging.info(f"=== СОЗДАНИЕ НОВОЙ ЗАПИСИ {index} ===")
+            logging.info(f"batch_id: {batch_id}")
+            logging.info(f"file_name: {file.filename}")
+            logging.info(f"source_system: {source_system}")
             
             # Заполняем поля из Excel на основе сопоставления
             for model_field, excel_column in excel_column_map.items():
@@ -724,10 +729,20 @@ def upload_analysis():
             logging.info(f"  name={analysis_record.get('mssql_sxclass_name')}")
             logging.info(f"  description={analysis_record.get('mssql_sxclass_description')}")
             
-            # Создаем объект AnalysisData и добавляем в сессию
-            record_obj = AnalysisData(**analysis_record)
-            db.session.add(record_obj)
-            processed_records.append(record_obj)
+            # Детальное логирование каждого поля перед созданием записи
+            logging.info(f"=== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ПЕРЕД СОЗДАНИЕМ ЗАПИСИ {index} ===")
+            for key, value in analysis_record.items():
+                logging.info(f"ПОЛЕ: {key}, ЗНАЧЕНИЕ: {value}, ТИП: {type(value).__name__}")
+            
+            try:
+                # Создаем объект AnalysisData и добавляем в сессию
+                record_obj = AnalysisData(**analysis_record)
+                db.session.add(record_obj)
+                processed_records.append(record_obj)
+                logging.info(f"Запись {index} успешно создана и добавлена в сессию")
+            except Exception as e:
+                logging.error(f"ОШИБКА при создании записи {index}: {str(e)}", exc_info=True)
+                # Продолжаем обработку других записей
             
             # Детальное логирование каждой записи
             logging.info(f"=== ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ЗАПИСИ {index} ===")

@@ -1,9 +1,10 @@
 
 import os
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from datetime import datetime
 import json
+import traceback
 
 def check_analysis_data():
     """Проверяет содержимое таблицы analysis_data"""
@@ -72,6 +73,30 @@ def check_analysis_data():
                 null_field_count = null_count.scalar()
                 percentage = (null_field_count / total_count * 100) if total_count > 0 else 0
                 logging.info(f"Записей с NULL в поле {field}: {null_field_count} ({percentage:.2f}%)")
+            
+            # Проверяем типы данных в некоторых записях
+            if total_count > 0:
+                logging.info("Проверка типов данных в таблице:")
+                sample = connection.execute(text("""
+                    SELECT 
+                        id, batch_id, a_ouid, mssql_sxclass_name, 
+                        mssql_sxclass_description, priznak, 
+                        matched_historical_data,
+                        pg_typeof(id) as id_type,
+                        pg_typeof(batch_id) as batch_id_type,
+                        pg_typeof(a_ouid) as a_ouid_type,
+                        pg_typeof(mssql_sxclass_name) as name_type,
+                        pg_typeof(matched_historical_data) as matched_data_type
+                    FROM analysis_data 
+                    LIMIT 3
+                """))
+                
+                for row in sample:
+                    logging.info(f"Запись ID: {row.id}")
+                    logging.info(f"  batch_id: {row.batch_id} (тип: {row.batch_id_type})")
+                    logging.info(f"  a_ouid: {row.a_ouid} (тип: {row.a_ouid_type})")
+                    logging.info(f"  name: {row.mssql_sxclass_name} (тип: {row.name_type})")
+                    logging.info(f"  matched_data: {row.matched_historical_data} (тип: {row.matched_data_type})")
 
             # Выводим примеры первых 5 записей с подробной информацией
             logging.info("Примеры записей:")
