@@ -891,7 +891,8 @@ def init_routes(app):
                 all_results_for_discrepancy = query.all()
                 
                 for result in all_results_for_discrepancy:
-                    if result.discrepancies and str(result.discrepancies) == current_discrepancy:
+                    # Учитываем только записи со статусом 'pending'
+                    if result.status == 'pending' and result.discrepancies and str(result.discrepancies) == current_discrepancy:
                         discrepancy_results.append(result.id)
                 
                 if discrepancy_results:
@@ -917,7 +918,8 @@ def init_routes(app):
                     all_results = query.all()
                     
                     for result in all_results:
-                        if not result.discrepancies:
+                        # Учитываем только записи со статусом 'pending'
+                        if result.status != 'pending' or not result.discrepancies:
                             continue
                             
                         # Проверяем, содержит ли результат расхождения с указанными источниками и признаками
@@ -972,7 +974,8 @@ def init_routes(app):
             # Получаем статистику по расхождениям
             discrepancy_stats = {}
             for result in all_results:
-                if result.discrepancies:
+                # Учитываем только записи со статусом 'pending' (необработанные)
+                if result.status == 'pending' and result.discrepancies:
                     # Создаем ключ для группировки расхождений
                     discrepancy_key = str(result.discrepancies)
                     if discrepancy_key not in discrepancy_stats:
