@@ -45,6 +45,7 @@
         <div class="card-body">
             <form method="GET" class="row" id="filterForm">
                 <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                <input type="hidden" name="card_filter" id="cardFilterInput" value="{{ current_card_filter or '' }}">
                 <div class="col-md-3">
                     <select class="form-select" name="status" id="statusFilter">
                         <option value="">Все статусы</option>
@@ -78,6 +79,18 @@
                     </button>
                 </div>
             </form>
+            
+            {% if current_card_filter %}
+            <div class="mt-3">
+                <div class="alert alert-info d-flex align-items-center">
+                    <div>
+                        <strong>Активен фильтр по карточке расхождения:</strong>
+                        <span id="cardFilterInfo"></span>
+                    </div>
+                    <button type="button" class="btn-close ms-auto" id="clearCardFilter" aria-label="Очистить фильтр"></button>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
     
@@ -89,15 +102,22 @@
             <div class="row">
                 {% for discrepancy_pattern, stats in discrepancy_stats.items() %}
                 <div class="col-md-4 mb-3">
-                    <div class="card h-100 discrepancy-card" data-pattern="{{ discrepancy_pattern }}" style="cursor: pointer;">
-                        <div class="card-body">
-                            <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
-                            <p class="card-text">
-                                Признак: {{ stats.priznaks|join(', ') }}<br>
-                                Количество записей: {{ stats.count }}
-                            </p>
+                    <a href="{{ url_for('analysis_results', batch_id=batch_id, status='discrepancies', discrepancy_filter=discrepancy_pattern) }}" class="text-decoration-none">
+                        <div class="card h-100 discrepancy-card {% if current_card_filter and discrepancy_pattern == current_discrepancy %}active-card{% endif %}" 
+                             data-pattern="{{ discrepancy_pattern }}" 
+                             data-sources="{{ stats.sources|tojson|safe }}" 
+                             data-priznaks="{{ stats.priznaks|tojson|safe }}"
+                             onclick="handleCardClick(this, '{{ discrepancy_pattern }}', '{{ stats.sources|tojson|safe }}', '{{ stats.priznaks|tojson|safe }}')"
+                             style="cursor: pointer;">
+                            <div class="card-body">
+                                <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
+                                <p class="card-text">
+                                    Признак: {{ stats.priznaks|join(', ') }}<br>
+                                    Количество записей: {{ stats.count }}
+                                </p>
+                            </div>
                         </div>
-                    </div>
+                    </a>
                 </div>
                 {% endfor %}
             </div>
@@ -238,14 +258,14 @@
         <ul class="pagination justify-content-center">
             {% if pagination.has_prev %}
             <li class="page-item">
-                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.prev_num, status=current_status, search=current_search) }}">Предыдущая</a>
+                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.prev_num, status=current_status, search=current_search, discrepancy_filter=current_discrepancy, card_filter=current_card_filter) }}">Предыдущая</a>
             </li>
             {% endif %}
             
             {% for page in pagination.iter_pages() %}
                 {% if page %}
                     <li class="page-item {% if page == pagination.page %}active{% endif %}">
-                        <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, search=current_search) }}">{{ page }}</a>
+                        <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=page, status=current_status, search=current_search, discrepancy_filter=current_discrepancy, card_filter=current_card_filter) }}">{{ page }}</a>
                     </li>
                 {% else %}
                     <li class="page-item disabled"><span class="page-link">...</span></li>
@@ -254,7 +274,7 @@
             
             {% if pagination.has_next %}
             <li class="page-item">
-                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.next_num, status=current_status, search=current_search) }}">Следующая</a>
+                <a class="page-link" href="{{ url_for('analysis_results', batch_id=batch_id, page=pagination.next_num, status=current_status, search=current_search, discrepancy_filter=current_discrepancy, card_filter=current_card_filter) }}">Следующая</a>
             </li>
             {% endif %}
         </ul>
@@ -262,19 +282,139 @@
     {% endif %}
 </div>
 
+<style>
+    .active-card {
+        border: 2px solid #0d6efd;
+        box-shadow: 0 0 10px rgba(13, 110, 253, 0.5);
+    }
+    
+    .discrepancy-card:hover {
+        transform: translateY(-5px);
+        transition: transform 0.2s ease-in-out;
+    }
+</style>
+
 <script>
+// Функция для обработки клика по карточке
+function handleCardClick(card, pattern, sourcesJson, priznaksJson) {
+    console.log('Клик по карточке через onclick атрибут:', card);
+    console.log('Параметры:', { pattern, sourcesJson, priznaksJson });
+    
+    try {
+        // Парсим JSON данные
+        const sources = JSON.parse(sourcesJson);
+        const priznaks = JSON.parse(priznaksJson);
+        
+        // Создаем форму для отправки
+        const form = document.createElement('form');
+        form.method = 'GET';
+        form.action = window.location.pathname;
+        
+        // Добавляем параметры
+        const params = {
+            'batch_id': '{{ batch_id }}',
+            'status': 'discrepancies',
+            'discrepancy_filter': pattern
+        };
+        
+        // Добавляем card_filter только если нужно фильтровать по карточке
+        if (sources && sources.length > 0 && priznaks && priznaks.length > 0) {
+            params['card_filter'] = JSON.stringify({
+                sources: sources,
+                priznaks: priznaks
+            });
+        }
+        
+        for (const key in params) {
+            if (params[key]) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = key;
+                input.value = params[key];
+                form.appendChild(input);
+            }
+        }
+        
+        // Добавляем форму на страницу и отправляем
+        document.body.appendChild(form);
+        form.submit();
+    } catch (error) {
+        console.error('Ошибка при обработке клика:', error);
+        alert('Ошибка при обработке клика: ' + error);
+    }
+    
+    // Предотвращаем стандартное поведение ссылки
+    event.preventDefault();
+    event.stopPropagation();
+    return false;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Проверяем карточки расхождений
+    console.log('Проверка карточек расхождений:');
+    const cards = document.querySelectorAll('.discrepancy-card');
+    console.log(`Найдено ${cards.length} карточек расхождений`);
+    
+    cards.forEach((card, index) => {
+        console.log(`Карточка ${index + 1}:`, {
+            pattern: card.dataset.pattern,
+            sources: card.dataset.sources,
+            priznaks: card.dataset.priznaks
+        });
+        
+        // Добавляем прямой обработчик клика
+        card.onclick = function(event) {
+            console.log(`Клик по карточке ${index + 1} (прямой обработчик)`);
+            
+            // Получаем данные карточки
+            const pattern = this.dataset.pattern;
+            const sources = this.dataset.sources;
+            const priznaks = this.dataset.priznaks;
+            
+            console.log('Данные карточки (прямой обработчик):', {
+                pattern: pattern,
+                sources: sources,
+                priznaks: priznaks
+            });
+            
+            // Вызываем общую функцию обработки клика
+            handleCardClick(this, pattern, sources, priznaks);
+            
+            // Предотвращаем всплытие события
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+        };
+    });
+    
+    // Проверяем форму фильтрации
+    const filterForm = document.getElementById('filterForm');
+    console.log('Форма фильтрации:', filterForm);
+    
+    // Проверяем элементы формы
+    const statusFilter = document.getElementById('statusFilter');
+    const discrepancyFilter = document.getElementById('discrepancyFilter');
+    const cardFilterInput = document.getElementById('cardFilterInput');
+    
+    console.log('Элементы формы:', {
+        statusFilter: statusFilter,
+        discrepancyFilter: discrepancyFilter,
+        cardFilterInput: cardFilterInput
+    });
+    
     // Обработка сброса фильтров
     document.getElementById('resetFilters').addEventListener('click', function() {
         const form = document.getElementById('filterForm');
         const statusFilter = document.getElementById('statusFilter');
         const searchInput = document.getElementById('searchInput');
         const discrepancyFilter = document.getElementById('discrepancyFilter');
+        const cardFilterInput = document.getElementById('cardFilterInput');
         
         // Очищаем значения фильтров
         statusFilter.value = '';
         searchInput.value = '';
         discrepancyFilter.value = '';
+        cardFilterInput.value = '';
         
         // Отправляем форму
         form.submit();
@@ -467,24 +607,65 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('applySelected').disabled = selectedCount === 0;
     }
 
-    // Обработка кликов по карточкам расхождений
-    document.querySelectorAll('.discrepancy-card').forEach(card => {
-        card.addEventListener('click', function() {
-            const pattern = this.dataset.pattern;
-            const discrepancyFilter = document.getElementById('discrepancyFilter');
-            
-            // Устанавливаем значение в селект
-            discrepancyFilter.value = pattern;
-            
-            // Добавляем визуальный эффект нажатия
-            this.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                this.style.transform = 'scale(1)';
-            }, 100);
-            
-            // Отправляем форму
-            discrepancyFilter.form.submit();
+    // Обновляем URL в пагинации, чтобы сохранить фильтр по карточке
+    document.querySelectorAll('.pagination .page-link').forEach(link => {
+        const url = new URL(link.href);
+        const cardFilter = document.getElementById('cardFilterInput').value;
+        
+        if (cardFilter) {
+            url.searchParams.set('card_filter', cardFilter);
+            link.href = url.toString();
+        }
+    });
+
+    // Отображаем информацию о фильтре по карточке
+    if (document.getElementById('cardFilterInfo')) {
+        const cardFilterValue = document.getElementById('cardFilterInput').value;
+        if (cardFilterValue) {
+            try {
+                const cardData = JSON.parse(cardFilterValue);
+                const sources = cardData.sources.join(', ');
+                const priznaks = cardData.priznaks.join(', ');
+                document.getElementById('cardFilterInfo').textContent = 
+                    `Источники: ${sources}, Признаки: ${priznaks}`;
+            } catch (e) {
+                console.error('Ошибка при парсинге данных фильтра карточки:', e);
+            }
+        }
+    }
+    
+    // Обработчик для кнопки очистки фильтра по карточке
+    if (document.getElementById('clearCardFilter')) {
+        document.getElementById('clearCardFilter').addEventListener('click', function() {
+            document.getElementById('cardFilterInput').value = '';
+            document.getElementById('filterForm').submit();
         });
+    }
+});
+
+// Добавляем обработчики кликов на карточки через jQuery
+$(document).ready(function() {
+    $('.discrepancy-card').on('click', function(event) {
+        console.log('jQuery клик по карточке:', this);
+        
+        // Получаем данные карточки
+        const pattern = $(this).data('pattern');
+        const sources = $(this).data('sources');
+        const priznaks = $(this).data('priznaks');
+        
+        console.log('jQuery данные карточки:', {
+            pattern: pattern,
+            sources: sources,
+            priznaks: priznaks
+        });
+        
+        // Вызываем общую функцию обработки клика
+        handleCardClick(this, pattern, JSON.stringify(sources), JSON.stringify(priznaks));
+        
+        // Предотвращаем стандартное поведение ссылки
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
     });
 });
 </script>

@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 import logging
 import pandas as pd
+import json
 from database import db
 from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData, FieldMapping, AnalysisResult
 from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
@@ -860,12 +861,18 @@ def init_routes(app):
             page = request.args.get('page', 1, type=int)
             per_page = 20  # количество записей на странице
             
+            # Логируем параметры запроса
+            logging.info(f"Параметры запроса analysis_results: {dict(request.args)}")
+            
             # Получаем результаты анализа с пагинацией
             query = AnalysisResult.query.filter_by(batch_id=batch_id)
             
             # Применяем фильтры, если они есть
             status_filter = request.args.get('status')
             current_discrepancy = request.args.get('discrepancy_filter')
+            card_filter = request.args.get('card_filter')  # Новый параметр для фильтрации по карточке
+            
+            logging.info(f"Фильтры: status={status_filter}, discrepancy_filter={current_discrepancy}, card_filter={card_filter}")
             
             if status_filter:
                 if status_filter == 'no_matches':
@@ -877,7 +884,70 @@ def init_routes(app):
             
             # Применяем фильтр по расхождениям
             if current_discrepancy:
-                query = query.filter(AnalysisResult.discrepancies == current_discrepancy)
+                logging.info(f"Применяем фильтр по расхождениям: {current_discrepancy}")
+                # В PostgreSQL нельзя напрямую сравнивать JSON-поле со строкой
+                # Вместо этого получаем все результаты и фильтруем их в Python
+                discrepancy_results = []
+                all_results_for_discrepancy = query.all()
+                
+                for result in all_results_for_discrepancy:
+                    if result.discrepancies and str(result.discrepancies) == current_discrepancy:
+                        discrepancy_results.append(result.id)
+                
+                if discrepancy_results:
+                    query = AnalysisResult.query.filter(AnalysisResult.id.in_(discrepancy_results))
+                else:
+                    # Если нет совпадений, возвращаем пустой результат
+                    query = AnalysisResult.query.filter(AnalysisResult.id == -1)
+            
+            # Применяем фильтр по карточке расхождения
+            if card_filter:
+                logging.info(f"Применяем фильтр по карточке: {card_filter}")
+                # Разбираем параметры карточки (источники и признаки)
+                try:
+                    card_data = json.loads(card_filter)
+                    sources = card_data.get('sources', [])
+                    priznaks = card_data.get('priznaks', [])
+                    
+                    logging.info(f"Данные карточки: sources={sources}, priznaks={priznaks}")
+                    
+                    # Фильтруем результаты, у которых есть расхождения с указанными источниками и признаками
+                    filtered_results = []
+                    # Используем текущий query, который может уже быть отфильтрован по discrepancy_filter
+                    all_results = query.all()
+                    
+                    for result in all_results:
+                        if not result.discrepancies:
+                            continue
+                            
+                        # Проверяем, содержит ли результат расхождения с указанными источниками и признаками
+                        match = False
+                        for batch_id, priznak in result.discrepancies.items():
+                            # Получаем source_system для этого batch_id
+                            source = db.session.query(MigrationClass.source_system).filter_by(
+                                batch_id=batch_id
+                            ).first()
+                            
+                            if source and source[0] in sources and priznak in priznaks:
+                                match = True
+                                logging.info(f"Найдено совпадение: result_id={result.id}, source={source[0]}, priznak={priznak}")
+                                break
+                                
+                        if match:
+                            filtered_results.append(result.id)
+                    
+                    logging.info(f"Отфильтрованные результаты: {filtered_results}")
+                    
+                    # Применяем фильтр по ID
+                    if filtered_results:
+                        query = AnalysisResult.query.filter(AnalysisResult.id.in_(filtered_results))
+                    else:
+                        # Если нет совпадений, возвращаем пустой результат
+                        query = AnalysisResult.query.filter(AnalysisResult.id == -1)
+                except Exception as e:
+                    logging.error(f"Ошибка при применении фильтра по карточке: {str(e)}", exc_info=True)
+                    # Откатываем транзакцию в случае ошибки
+                    db.session.rollback()
             
             # Применяем поиск, если он есть
             search = request.args.get('search')
@@ -925,11 +995,21 @@ def init_routes(app):
                             discrepancy_stats[discrepancy_key]['sources'].add(source[0])
                         discrepancy_stats[discrepancy_key]['priznaks'].add(priznak)
 
+            # Логируем статистику по расхождениям
+            logging.info(f"Статистика по расхождениям (до преобразования): {discrepancy_stats}")
+
             # Преобразуем множества в списки для JSON-сериализации
             for key in discrepancy_stats:
                 discrepancy_stats[key]['sources'] = list(discrepancy_stats[key]['sources'])
                 discrepancy_stats[key]['priznaks'] = list(discrepancy_stats[key]['priznaks'])
                 discrepancy_stats[key]['count'] = discrepancy_stats[key]['count']
+            
+            # Логируем статистику по расхождениям после преобразования
+            logging.info(f"Статистика по расхождениям (после преобразования): {discrepancy_stats}")
+            
+            # Логируем текущий фильтр по расхождениям и карточке
+            logging.info(f"Текущий фильтр по расхождениям: {current_discrepancy}")
+            logging.info(f"Текущий фильтр по карточке: {card_filter}")
 
             # Получаем список уникальных значений priznak из исторических данных
             priznaks = db.session.query(MigrationClass.priznak).distinct().filter(
@@ -957,6 +1037,7 @@ def init_routes(app):
                                  current_status=status_filter,
                                  current_search=search,
                                  current_discrepancy=current_discrepancy,
+                                 current_card_filter=card_filter,  # Передаем текущий фильтр по карточке
                                  discrepancy_stats=discrepancy_stats,
                                  priznaks=priznaks,
                                  batch_sources=batch_sources)
