@@ -1029,6 +1029,17 @@ def init_routes(app):
                             ).first()
                             batch_sources[historical_batch_id] = source[0] if source else 'Неизвестный источник'
             
+            # Получаем описания классов из таблицы analysis_data
+            class_descriptions = {}
+            for result in pagination.items:
+                if result.mssql_sxclass_name not in class_descriptions:
+                    # Ищем описание в таблице analysis_data
+                    description_data = db.session.query(AnalysisData.mssql_sxclass_description).filter_by(
+                        batch_id=batch_id,
+                        mssql_sxclass_name=result.mssql_sxclass_name
+                    ).first()
+                    class_descriptions[result.mssql_sxclass_name] = description_data[0] if description_data else ''
+            
             return render_template('analysis_results.html',
                                  results=pagination.items,
                                  pagination=pagination,
@@ -1040,7 +1051,8 @@ def init_routes(app):
                                  current_card_filter=card_filter,  # Передаем текущий фильтр по карточке
                                  discrepancy_stats=discrepancy_stats,
                                  priznaks=priznaks,
-                                 batch_sources=batch_sources)
+                                 batch_sources=batch_sources,
+                                 class_descriptions=class_descriptions)  # Передаем описания классов
             
         except Exception as e:
             logging.error(f"Ошибка при отображении результатов анализа: {str(e)}", exc_info=True)
@@ -1330,6 +1342,104 @@ def init_routes(app):
         except Exception as e:
             db.session.rollback()
             logging.error(f"Ошибка при массовом обновлении значений priznak: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/update_priznak_all_filtered', methods=['POST'])
+    def update_priznak_all_filtered():
+        try:
+            data = request.get_json()
+            batch_id = data.get('batch_id')
+            priznak = data.get('priznak')
+            status_filter = data.get('status_filter')
+            discrepancy_filter = data.get('discrepancy_filter')
+            card_filter = data.get('card_filter')
+            search = data.get('search')
+            
+            if not batch_id or not priznak:
+                return jsonify({
+                    'success': False,
+                    'error': 'Необходимо указать batch_id и значение priznak'
+                }), 400
+            
+            # Базовый запрос
+            query = AnalysisResult.query.filter_by(batch_id=batch_id)
+            
+            # Применяем фильтры
+            if status_filter:
+                if status_filter == 'no_matches':
+                    query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.is_(None))
+                elif status_filter == 'discrepancies':
+                    query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
+                else:
+                    query = query.filter(AnalysisResult.status == status_filter)
+            
+            # Применяем поиск, если он есть
+            if search:
+                query = query.filter(AnalysisResult.mssql_sxclass_name.ilike(f'%{search}%'))
+            
+            # Для фильтров, требующих дополнительной обработки, получаем все результаты и фильтруем их в Python
+            all_results = query.all()
+            filtered_results = all_results
+            
+            # Применяем фильтр по расхождениям
+            if discrepancy_filter:
+                discrepancy_results = []
+                for result in all_results:
+                    if result.discrepancies and str(result.discrepancies) == discrepancy_filter:
+                        discrepancy_results.append(result)
+                filtered_results = discrepancy_results
+            
+            # Применяем фильтр по карточке расхождения
+            if card_filter:
+                try:
+                    card_data = json.loads(card_filter)
+                    sources = card_data.get('sources', [])
+                    priznaks = card_data.get('priznaks', [])
+                    
+                    card_filtered_results = []
+                    for result in filtered_results:
+                        if not result.discrepancies:
+                            continue
+                            
+                        # Проверяем, содержит ли результат расхождения с указанными источниками и признаками
+                        match = False
+                        for batch_id, priznak_value in result.discrepancies.items():
+                            # Получаем source_system для этого batch_id
+                            source = db.session.query(MigrationClass.source_system).filter_by(
+                                batch_id=batch_id
+                            ).first()
+                            
+                            if source and source[0] in sources and priznak_value in priznaks:
+                                match = True
+                                break
+                                
+                        if match:
+                            card_filtered_results.append(result)
+                    
+                    filtered_results = card_filtered_results
+                except Exception as e:
+                    logging.error(f"Ошибка при применении фильтра по карточке: {str(e)}", exc_info=True)
+            
+            # Обновляем значения для всех отфильтрованных записей
+            updated_count = 0
+            for result in filtered_results:
+                result.priznak = priznak
+                result.analyzed_by = 'batch_update'  # Отмечаем, что значение было обновлено массово
+                result.status = 'analyzed'
+                result.confidence_score = 1.0
+                updated_count += 1
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Успешно обновлено {updated_count} записей',
+                'updated_count': updated_count
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при массовом обновлении всех отфильтрованных записей: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/analyze/batch/<batch_id>', methods=['POST'])

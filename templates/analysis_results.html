@@ -131,6 +131,9 @@
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="card-title mb-0">Результаты анализа</h5>
                 <div>
+                    <button id="exportBtn" class="btn btn-secondary me-2">
+                        <i class="bi bi-file-excel"></i> Экспорт в Excel
+                    </button>
                     <button id="applySelected" class="btn btn-primary me-2" disabled>
                         Применить к выбранным
                     </button>
@@ -146,6 +149,7 @@
                             <th>
                                 <input type="checkbox" id="selectAll" class="form-check-input">
                             </th>
+                            <th>Описание</th>
                             <th>Имя класса</th>
                             <th>Признак</th>
                             <th>Уверенность</th>
@@ -163,6 +167,7 @@
                                        data-status="{{ result.status }}"
                                        data-discrepancies="{{ result.discrepancies|tojson if result.discrepancies else '{}' }}">
                             </td>
+                            <td>{{ class_descriptions[result.mssql_sxclass_name] }}</td>
                             <td>{{ result.mssql_sxclass_name }}</td>
                             <td>
                                 <select class="form-select priznak-select" data-id="{{ result.id }}">
@@ -301,11 +306,61 @@ function handleCardClick(card, pattern, sourcesJson, priznaksJson) {
     console.log('Параметры:', { pattern, sourcesJson, priznaksJson });
     
     try {
-        // Парсим JSON данные
-        const sources = JSON.parse(sourcesJson);
-        const priznaks = JSON.parse(priznaksJson);
+        // Парсим JSON данные с проверкой
+        let sources = [];
+        let priznaks = [];
         
-        // Создаем форму для отправки
+        try {
+            if (typeof sourcesJson === 'string' && sourcesJson.trim() !== '') {
+                sources = JSON.parse(sourcesJson);
+            } else if (Array.isArray(sourcesJson)) {
+                sources = sourcesJson;
+            }
+        } catch (e) {
+            console.error('Ошибка при парсинге sources:', e);
+        }
+        
+        try {
+            if (typeof priznaksJson === 'string' && priznaksJson.trim() !== '') {
+                priznaks = JSON.parse(priznaksJson);
+            } else if (Array.isArray(priznaksJson)) {
+                priznaks = priznaksJson;
+            }
+        } catch (e) {
+            console.error('Ошибка при парсинге priznaks:', e);
+        }
+        
+        console.log('Данные после парсинга:', {
+            pattern: pattern,
+            sources: sources,
+            priznaks: priznaks
+        });
+        
+        // Устанавливаем значение в селект расхождений
+        const discrepancyFilter = document.getElementById('discrepancyFilter');
+        const cardFilterInput = document.getElementById('cardFilterInput');
+        
+        if (discrepancyFilter && pattern) {
+            discrepancyFilter.value = pattern;
+            
+            // Устанавливаем значение card_filter
+            if (cardFilterInput && sources && sources.length > 0 && priznaks && priznaks.length > 0) {
+                const cardFilterData = {
+                    sources: sources,
+                    priznaks: priznaks
+                };
+                cardFilterInput.value = JSON.stringify(cardFilterData);
+            }
+            
+            // Отправляем форму напрямую
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                filterForm.submit();
+                return false;
+            }
+        }
+        
+        // Если не удалось отправить форму напрямую, создаем новую
         const form = document.createElement('form');
         form.method = 'GET';
         form.action = window.location.pathname;
@@ -344,12 +399,41 @@ function handleCardClick(card, pattern, sourcesJson, priznaksJson) {
     }
     
     // Предотвращаем стандартное поведение ссылки
-    event.preventDefault();
-    event.stopPropagation();
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
     return false;
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM загружен, инициализация скриптов...');
+    
+    // Проверяем наличие элементов управления
+    console.log('Проверка элементов управления:');
+    console.log('- Кнопка "Применить к выбранным":', document.getElementById('applySelected'));
+    console.log('- Кнопка "Применить ко всем":', document.getElementById('applyAll'));
+    console.log('- Чекбокс "Выбрать все":', document.getElementById('selectAll'));
+    console.log('- Модальное окно:', document.getElementById('applyValueModal'));
+    console.log('- Селект значений в модальном окне:', document.getElementById('batchValueSelect'));
+    console.log('- Кнопка применения в модальном окне:', document.getElementById('applySelectedValue'));
+    
+    // Проверяем чекбоксы записей
+    const checkboxes = document.querySelectorAll('.result-checkbox');
+    console.log(`Найдено ${checkboxes.length} чекбоксов записей`);
+    
+    // Проверяем кнопки сохранения
+    const saveButtons = document.querySelectorAll('.save-priznak');
+    console.log(`Найдено ${saveButtons.length} кнопок сохранения`);
+    
+    // Проверяем селекты признаков
+    const priznakSelects = document.querySelectorAll('.priznak-select');
+    console.log(`Найдено ${priznakSelects.length} селектов признаков`);
+    
+    // Проверяем кнопки подтверждения
+    const confirmButtons = document.querySelectorAll('.confirm-result');
+    console.log(`Найдено ${confirmButtons.length} кнопок подтверждения`);
+    
     // Проверяем карточки расхождений
     console.log('Проверка карточек расхождений:');
     const cards = document.querySelectorAll('.discrepancy-card');
@@ -377,8 +461,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 priznaks: priznaks
             });
             
-            // Вызываем общую функцию обработки клика
-            handleCardClick(this, pattern, sources, priznaks);
+            // Устанавливаем значение в селект расхождений
+            const discrepancyFilter = document.getElementById('discrepancyFilter');
+            const cardFilterInput = document.getElementById('cardFilterInput');
+            
+            if (discrepancyFilter && pattern) {
+                discrepancyFilter.value = pattern;
+                
+                // Устанавливаем значение card_filter
+                if (cardFilterInput && sources && priznaks) {
+                    try {
+                        const sourcesArray = typeof sources === 'string' ? JSON.parse(sources) : sources;
+                        const priznaksArray = typeof priznaks === 'string' ? JSON.parse(priznaks) : priznaks;
+                        
+                        if (sourcesArray && sourcesArray.length > 0 && priznaksArray && priznaksArray.length > 0) {
+                            const cardFilterData = {
+                                sources: sourcesArray,
+                                priznaks: priznaksArray
+                            };
+                            cardFilterInput.value = JSON.stringify(cardFilterData);
+                        }
+                    } catch (e) {
+                        console.error('Ошибка при установке card_filter:', e);
+                    }
+                }
+                
+                // Отправляем форму напрямую
+                const filterForm = document.getElementById('filterForm');
+                if (filterForm) {
+                    filterForm.submit();
+                    return false;
+                }
+            }
             
             // Предотвращаем всплытие события
             event.preventDefault();
@@ -440,15 +554,18 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Экспорт в Excel
-    document.getElementById('exportBtn').addEventListener('click', function() {
-        window.location.href = `/api/export_analysis/{{ batch_id }}`;
-    });
+    // Экспорт в Excel - проверяем наличие элемента перед добавлением обработчика
+    const exportBtn = document.getElementById('exportBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            window.location.href = `/api/export_analysis/{{ batch_id }}`;
+        });
+    }
 
     // Подтверждение результата
     document.querySelectorAll('.confirm-result').forEach(button => {
         button.addEventListener('click', function() {
-            const resultId = this.dataset.resultId;
+            const resultId = this.dataset.id;
             
             fetch(`/api/confirm_analysis_result/${resultId}`, {
                 method: 'POST',
@@ -474,7 +591,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Обработчик для сохранения значения priznak
     document.querySelectorAll('.save-priznak').forEach(button => {
         button.addEventListener('click', function() {
-            const resultId = this.dataset.resultId;
+            const resultId = this.dataset.id;
             const select = document.querySelector(`.priznak-select[data-id="${resultId}"]`);
             const newPriznak = select.value;
 
@@ -507,85 +624,232 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Собираем уникальные значения из расхождений
         const uniqueValues = new Set();
+        
+        // Добавляем значения из расхождений
         Object.values(discrepancies).forEach(value => uniqueValues.add(value));
         
+        // Добавляем все доступные значения признаков из списка
+        const priznaksList = JSON.parse('{{ priznaks|tojson|safe }}');
+        priznaksList.forEach(priznak => uniqueValues.add(priznak));
+        
         // Добавляем значения в select
-        uniqueValues.forEach(value => {
+        Array.from(uniqueValues).sort().forEach(value => {
             const option = document.createElement('option');
             option.value = value;
             option.textContent = value;
             select.appendChild(option);
         });
+        
+        console.log('Обновлен список значений в модальном окне:', Array.from(uniqueValues));
     }
 
     // Обработчик для кнопки "Применить к выбранным"
     document.getElementById('applySelected').addEventListener('click', function() {
         const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
-        if (selectedCheckboxes.length === 0) return;
+        if (selectedCheckboxes.length === 0) {
+            alert('Выберите хотя бы одну запись');
+            return;
+        }
         
         // Собираем все расхождения из выбранных записей
         const allDiscrepancies = {};
         selectedCheckboxes.forEach(checkbox => {
-            const discrepancies = JSON.parse(checkbox.dataset.discrepancies);
-            Object.assign(allDiscrepancies, discrepancies);
+            try {
+                const discrepancies = JSON.parse(checkbox.dataset.discrepancies || '{}');
+                Object.assign(allDiscrepancies, discrepancies);
+            } catch (e) {
+                console.error('Ошибка при парсинге расхождений:', e);
+            }
         });
+        
+        console.log('Собраны расхождения для выбранных записей:', allDiscrepancies);
         
         // Обновляем список значений в модальном окне
         updateBatchValueSelect(allDiscrepancies);
         
+        // Проверяем наличие модального окна
+        const modalElement = document.getElementById('applyValueModal');
+        if (!modalElement) {
+            console.error('Модальное окно не найдено!');
+            alert('Ошибка: модальное окно не найдено');
+            return;
+        }
+        
+        // Добавляем флаг, указывающий, что это обновление выбранных записей
+        modalElement.dataset.updateMode = 'selected';
+        
+        console.log('Открываем модальное окно для массового применения');
+        
         // Показываем модальное окно
-        const modal = new bootstrap.Modal(document.getElementById('applyValueModal'));
-        modal.show();
+        try {
+            const modal = new bootstrap.Modal(modalElement);
+            modal.show();
+            
+            // Удаляем флаг при закрытии модального окна
+            modalElement.addEventListener('hidden.bs.modal', function() {
+                delete modalElement.dataset.updateMode;
+            }, { once: true });
+        } catch (e) {
+            console.error('Ошибка при открытии модального окна:', e);
+            alert('Ошибка при открытии модального окна: ' + e.message);
+        }
     });
 
     // Обработчик для кнопки "Применить ко всем"
     document.getElementById('applyAll').addEventListener('click', function() {
-        const allCheckboxes = document.querySelectorAll('.result-checkbox');
-        if (allCheckboxes.length === 0) return;
+        // Проверяем наличие модального окна
+        const modalElement = document.getElementById('applyValueModal');
+        if (!modalElement) {
+            console.error('Модальное окно не найдено!');
+            alert('Ошибка: модальное окно не найдено');
+            return;
+        }
         
-        // Собираем все расхождения
-        const allDiscrepancies = {};
-        allCheckboxes.forEach(checkbox => {
-            const discrepancies = JSON.parse(checkbox.dataset.discrepancies);
-            Object.assign(allDiscrepancies, discrepancies);
+        // Получаем текущие параметры фильтрации из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const batchId = urlParams.get('batch_id') || '{{ batch_id }}';
+        const statusFilter = urlParams.get('status') || '';
+        const discrepancyFilter = urlParams.get('discrepancy_filter') || '';
+        const cardFilter = urlParams.get('card_filter') || '';
+        const search = urlParams.get('search') || '';
+        
+        console.log('Текущие параметры фильтрации:', {
+            batchId,
+            statusFilter,
+            discrepancyFilter,
+            cardFilter,
+            search
         });
+        
+        // Собираем все доступные значения признаков
+        const allDiscrepancies = {};
         
         // Обновляем список значений в модальном окне
         updateBatchValueSelect(allDiscrepancies);
         
+        // Устанавливаем обработчик для кнопки "Применить" в модальном окне
+        const applyButton = document.getElementById('applySelectedValue');
+        
+        // Создаем новый обработчик для кнопки "Применить" в модальном окне
+        const applyAllFilteredHandler = async function() {
+            const selectedValue = document.getElementById('batchValueSelect').value;
+            if (!selectedValue) {
+                alert('Выберите значение для применения');
+                return;
+            }
+            
+            console.log('Отправка запроса на обновление всех отфильтрованных записей:', {
+                batch_id: batchId,
+                priznak: selectedValue,
+                status_filter: statusFilter,
+                discrepancy_filter: discrepancyFilter,
+                card_filter: cardFilter,
+                search: search
+            });
+            
+            try {
+                const response = await fetch('/api/update_priznak_all_filtered', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        batch_id: batchId,
+                        priznak: selectedValue,
+                        status_filter: statusFilter,
+                        discrepancy_filter: discrepancyFilter,
+                        card_filter: cardFilter,
+                        search: search
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Успешно обновлено ${data.updated_count} записей`);
+                    location.reload();
+                } else {
+                    alert('Ошибка при обновлении значений: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка при обновлении значений:', error);
+                alert('Ошибка при обновлении значений: ' + error);
+            }
+        };
+        
+        // Сохраняем ссылку на стандартный обработчик
+        const standardHandler = applyButton.onclick;
+        
+        // Устанавливаем новый обработчик
+        applyButton.onclick = applyAllFilteredHandler;
+        
+        // Добавляем флаг, указывающий, что это массовое обновление всех записей
+        modalElement.dataset.updateMode = 'all_filtered';
+        
         // Показываем модальное окно
-        const modal = new bootstrap.Modal(document.getElementById('applyValueModal'));
-        modal.show();
+        try {
+            const modal = new bootstrap.Modal(modalElement);
+            modal.show();
+            
+            // Восстанавливаем стандартный обработчик при закрытии модального окна
+            modalElement.addEventListener('hidden.bs.modal', function() {
+                applyButton.onclick = standardHandler;
+                delete modalElement.dataset.updateMode;
+            }, { once: true });
+        } catch (e) {
+            console.error('Ошибка при открытии модального окна:', e);
+            alert('Ошибка при открытии модального окна: ' + e.message);
+        }
     });
 
     // Обработчик для кнопки "Применить" в модальном окне
     document.getElementById('applySelectedValue').addEventListener('click', async function() {
         const selectedValue = document.getElementById('batchValueSelect').value;
-        if (!selectedValue) return;
+        if (!selectedValue) {
+            alert('Выберите значение для применения');
+            return;
+        }
         
-        const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
-        const ids = Array.from(selectedCheckboxes).map(checkbox => checkbox.dataset.id);
+        const modalElement = document.getElementById('applyValueModal');
+        const updateMode = modalElement ? modalElement.dataset.updateMode : 'selected';
         
-        try {
-            const response = await fetch('/api/update_priznak_batch', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    ids: ids,
-                    priznak: selectedValue
-                })
+        // Если это не массовое обновление всех записей, проверяем выбранные чекбоксы
+        if (updateMode !== 'all_filtered') {
+            const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
+            const ids = Array.from(selectedCheckboxes).map(checkbox => checkbox.dataset.id);
+            
+            if (ids.length === 0) {
+                alert('Не выбрано ни одной записи');
+                return;
+            }
+            
+            console.log('Отправка запроса на обновление выбранных записей:', {
+                ids: ids,
+                priznak: selectedValue
             });
             
-            const data = await response.json();
-            if (data.success) {
-                location.reload();
-            } else {
-                alert('Ошибка при обновлении значений: ' + data.error);
+            try {
+                const response = await fetch('/api/update_priznak_batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ids: ids,
+                        priznak: selectedValue
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert(`Успешно обновлено ${data.updated_count} записей`);
+                    location.reload();
+                } else {
+                    alert('Ошибка при обновлении значений: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка при обновлении значений:', error);
+                alert('Ошибка при обновлении значений: ' + error);
             }
-        } catch (error) {
-            alert('Ошибка при обновлении значений: ' + error);
         }
     });
 
@@ -604,7 +868,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для обновления состояния кнопки "Применить к выбранным"
     function updateApplyButton() {
         const selectedCount = document.querySelectorAll('.result-checkbox:checked').length;
-        document.getElementById('applySelected').disabled = selectedCount === 0;
+        const applySelectedBtn = document.getElementById('applySelected');
+        if (applySelectedBtn) {
+            applySelectedBtn.disabled = selectedCount === 0;
+            if (selectedCount > 0) {
+                applySelectedBtn.textContent = `Применить к выбранным (${selectedCount})`;
+            } else {
+                applySelectedBtn.textContent = 'Применить к выбранным';
+            }
+        }
     }
 
     // Обновляем URL в пагинации, чтобы сохранить фильтр по карточке
@@ -659,8 +931,29 @@ $(document).ready(function() {
             priznaks: priznaks
         });
         
-        // Вызываем общую функцию обработки клика
-        handleCardClick(this, pattern, JSON.stringify(sources), JSON.stringify(priznaks));
+        // Устанавливаем значение в селект расхождений
+        const discrepancyFilter = document.getElementById('discrepancyFilter');
+        const cardFilterInput = document.getElementById('cardFilterInput');
+        
+        if (discrepancyFilter && pattern) {
+            discrepancyFilter.value = pattern;
+            
+            // Устанавливаем значение card_filter
+            if (cardFilterInput && sources && sources.length > 0 && priznaks && priznaks.length > 0) {
+                const cardFilterData = {
+                    sources: sources,
+                    priznaks: priznaks
+                };
+                cardFilterInput.value = JSON.stringify(cardFilterData);
+            }
+            
+            // Отправляем форму напрямую
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                filterForm.submit();
+                return false;
+            }
+        }
         
         // Предотвращаем стандартное поведение ссылки
         event.preventDefault();
