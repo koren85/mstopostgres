@@ -57,43 +57,44 @@ class Discrepancy(db.Model):
     detected_date = db.Column(db.DateTime, default=datetime.utcnow)
     resolved = db.Column(db.Boolean, default=False)
     resolution_note = db.Column(db.Text)
+    analysis_result_id = db.Column(db.Integer, db.ForeignKey('analysis_results.id'))
 
 class AnalysisData(db.Model):
     """Таблица для данных требующих анализа"""
     __tablename__ = 'analysis_data'
 
     id = db.Column(db.Integer, primary_key=True)
-    batch_id = db.Column(db.Integer, nullable=False)
+    batch_id = db.Column(db.String(36), nullable=False)
     file_name = db.Column(db.String(255), nullable=False)
-    a_ouid = db.Column(db.String(255))  # Изменено на строковый тип
+    a_ouid = db.Column(db.String(255))
     mssql_sxclass_description = db.Column(db.Text)
     mssql_sxclass_name = db.Column(db.String(255))
     mssql_sxclass_map = db.Column(db.Text)
     priznak = db.Column(db.String(50))
-    system_class = db.Column(db.String(255))  # Изменено на строковый тип
-    is_link_table = db.Column(db.String(255))  # Изменено на строковый тип
+    system_class = db.Column(db.String(255))
+    is_link_table = db.Column(db.String(255))
     parent_class = db.Column(db.Text)
     child_classes = db.Column(db.Text)
-    child_count = db.Column(db.String(255))  # Изменено на строковый тип
-    created_date = db.Column(db.String(255))  # Изменено на строковый тип
+    child_count = db.Column(db.String(255))
+    created_date = db.Column(db.String(255))
     created_by = db.Column(db.Text)
-    modified_date = db.Column(db.String(255))  # Изменено на строковый тип
+    modified_date = db.Column(db.String(255))
     modified_by = db.Column(db.Text)
     folder_paths = db.Column(db.Text)
-    object_count = db.Column(db.String(255))  # Изменено на строковый тип
-    last_object_created = db.Column(db.String(255))  # Изменено на строковый тип
-    last_object_modified = db.Column(db.String(255))  # Изменено на строковый тип
-    attribute_count = db.Column(db.String(255))  # Изменено на строковый тип
+    object_count = db.Column(db.String(255))
+    last_object_created = db.Column(db.String(255))
+    last_object_modified = db.Column(db.String(255))
+    attribute_count = db.Column(db.String(255))
     category = db.Column(db.Text)
     migration_flag = db.Column(db.Text)
     rule_info = db.Column(db.Text)
     source_system = db.Column(db.String(100), nullable=False)
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
-    confidence_score = db.Column(db.Float)  # Уверенность классификации
-    classified_by = db.Column(db.String(50))  # manual, rule, or ai
-    analysis_state = db.Column(db.String(20), default='pending')  # pending, analyzed, conflict
-    matched_historical_data = db.Column(db.JSON)  # Для хранения информации о найденных совпадениях
-    analysis_date = db.Column(db.DateTime)  # Когда был проведен анализ
+    confidence_score = db.Column(db.Float)
+    classified_by = db.Column(db.String(50))
+    analysis_state = db.Column(db.String(20), default='pending')
+    matched_historical_data = db.Column(db.JSON)
+    analysis_date = db.Column(db.DateTime)
 
 class FieldMapping(db.Model):
     __tablename__ = 'field_mappings'
@@ -117,6 +118,6 @@ class AnalysisResult(db.Model):
     priznak = db.Column(db.String(50))
     confidence_score = db.Column(db.Float)
     analysis_date = db.Column(db.DateTime, default=datetime.utcnow)
-    discrepancies = db.Column(db.JSON)  # Хранение расхождений в формате JSON
-    status = db.Column(db.String(20), default='pending')  # pending, analyzed, confirmed
-    analyzed_by = db.Column(db.String(50))  # rule, historical, manual
+    discrepancies = db.Column(db.JSON)
+    status = db.Column(db.String(20), default='pending')
+    analyzed_by = db.Column(db.String(50))

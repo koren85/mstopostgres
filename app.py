@@ -18,6 +18,8 @@ except ImportError:
     os.system("pip install openpyxl")
     logging.info("Установлена библиотека openpyxl")
 
+from services.analysis_service import AnalysisService
+
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
@@ -188,6 +190,13 @@ def create_app():
             return json.loads(s)
         except (TypeError, ValueError):
             return {}
+
+    @app.route('/analysis')
+    def analysis_page():
+        """
+        Страница анализа данных
+        """
+        return render_template('analysis.html')
 
     return app
 

@@ -1249,4 +1249,125 @@ def init_routes(app):
         except Exception as e:
             db.session.rollback()
             logging.error(f"Ошибка при массовом обновлении значений priznak: {str(e)}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500 
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/analyze/batch/<batch_id>', methods=['POST'])
+    def analyze_batch_v2(batch_id):
+        """
+        Запуск анализа для указанного batch_id
+        """
+        try:
+            analysis_service = AnalysisService()
+            result = analysis_service.analyze_historical_patterns(batch_id)
+            
+            if result['success']:
+                return jsonify(result)
+            else:
+                return jsonify(result), 500
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    @app.route('/api/analysis/results', methods=['GET'])
+    def get_analysis_results():
+        """
+        Получение результатов анализа с фильтрацией
+        """
+        try:
+            # Параметры фильтрации
+            batch_id = request.args.get('batch_id')
+            confidence_threshold = float(request.args.get('confidence', 0.0))
+            priznak = request.args.get('priznak')
+            has_discrepancies = request.args.get('has_discrepancies', '').lower() == 'true'
+            
+            # Базовый запрос
+            query = AnalysisResult.query
+            
+            # Применяем фильтры
+            if batch_id:
+                query = query.filter_by(batch_id=batch_id)
+            if confidence_threshold > 0:
+                query = query.filter(AnalysisResult.confidence_score >= confidence_threshold)
+            if priznak:
+                query = query.filter_by(priznak=priznak)
+            if has_discrepancies:
+                query = query.filter(AnalysisResult.discrepancies != None)
+            
+            # Получаем результаты с пагинацией
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 20, type=int)
+            pagination = query.order_by(AnalysisResult.analysis_date.desc()).paginate(
+                page=page, per_page=per_page, error_out=False)
+            
+            results = [{
+                'id': r.id,
+                'class_name': r.mssql_sxclass_name,
+                'priznak': r.priznak,
+                'confidence': r.confidence_score,
+                'discrepancies': r.discrepancies,
+                'status': r.status,
+                'analysis_date': r.analysis_date.isoformat() if r.analysis_date else None
+            } for r in pagination.items]
+            
+            return jsonify({
+                'success': True,
+                'results': results,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': pagination.total,
+                    'pages': pagination.pages
+                }
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
+
+    @app.route('/api/analysis/statistics', methods=['GET'])
+    def get_analysis_statistics():
+        """
+        Получение статистики по анализу
+        """
+        try:
+            batch_id = request.args.get('batch_id')
+            
+            # Базовый запрос
+            query = AnalysisResult.query
+            
+            if batch_id:
+                query = query.filter_by(batch_id=batch_id)
+            
+            # Общая статистика
+            total_analyzed = query.count()
+            high_confidence = query.filter(AnalysisResult.confidence_score >= 0.8).count()
+            with_discrepancies = query.filter(AnalysisResult.discrepancies != None).count()
+            
+            # Распределение по признакам
+            priznak_distribution = db.session.query(
+                AnalysisResult.priznak,
+                func.count(AnalysisResult.id).label('count')
+            ).group_by(AnalysisResult.priznak).all()
+            
+            return jsonify({
+                'success': True,
+                'statistics': {
+                    'total_analyzed': total_analyzed,
+                    'high_confidence_matches': high_confidence,
+                    'with_discrepancies': with_discrepancies,
+                    'priznak_distribution': {
+                        p[0]: p[1] for p in priznak_distribution if p[0]
+                    }
+                }
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500 
