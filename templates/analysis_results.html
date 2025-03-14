@@ -4,6 +4,29 @@
 <div class="container mt-4">
     <h2>Результаты анализа</h2>
     
+    <style>
+        .discrepancy-card {
+            transition: all 0.3s ease;
+            border: 1px solid #dee2e6;
+        }
+        
+        .discrepancy-card:hover {
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            transform: translateY(-2px);
+        }
+        
+        .active-card {
+            border: 2px solid #0d6efd;
+            background-color: rgba(13, 110, 253, 0.1);
+        }
+        
+        .discrepancy-item {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0;
+            border-bottom: 1px dashed #eee;
+        }
+    </style>
+    
     <!-- Статистика -->
     <div class="row mb-4">
         <div class="col-md-3">
@@ -43,7 +66,7 @@
     <!-- Фильтры -->
     <div class="card mb-4">
         <div class="card-body">
-            <form method="GET" class="row" id="filterForm">
+            <form method="GET" class="row" id="filterForm" action="{{ url_for('analysis_results', batch_id=batch_id) }}#results-table">
                 <input type="hidden" name="batch_id" value="{{ batch_id }}">
                 <input type="hidden" name="card_filter" id="cardFilterInput" value="{{ current_card_filter or '' }}">
                 <div class="col-md-3">
@@ -102,22 +125,19 @@
             <div class="row">
                 {% for discrepancy_pattern, stats in discrepancy_stats.items() %}
                 <div class="col-md-4 mb-3">
-                    <a href="{{ url_for('analysis_results', batch_id=batch_id, status='discrepancies', discrepancy_filter=discrepancy_pattern) }}" class="text-decoration-none">
-                        <div class="card h-100 discrepancy-card {% if current_card_filter and discrepancy_pattern == current_discrepancy %}active-card{% endif %}" 
-                             data-pattern="{{ discrepancy_pattern }}" 
-                             data-sources="{{ stats.sources|tojson|safe }}" 
-                             data-priznaks="{{ stats.priznaks|tojson|safe }}"
-                             onclick="handleCardClick(this, '{{ discrepancy_pattern }}', '{{ stats.sources|tojson|safe }}', '{{ stats.priznaks|tojson|safe }}')"
-                             style="cursor: pointer;">
-                            <div class="card-body">
-                                <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
-                                <p class="card-text">
-                                    Признак: {{ stats.priznaks|join(', ') }}<br>
-                                    Количество записей: {{ stats.count }}
-                                </p>
-                            </div>
+                    <div class="card h-100 discrepancy-card {% if current_card_filter and discrepancy_pattern == current_discrepancy %}active-card{% endif %}" 
+                         data-pattern="{{ discrepancy_pattern }}" 
+                         data-sources="{{ stats.sources|tojson|safe }}" 
+                         data-priznaks="{{ stats.priznaks|tojson|safe }}"
+                         style="cursor: pointer;">
+                        <div class="card-body">
+                            <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
+                            <p class="card-text">
+                                Признак: {{ stats.priznaks|join(', ') }}<br>
+                                Количество записей: {{ stats.count }}
+                            </p>
                         </div>
-                    </a>
+                    </div>
                 </div>
                 {% endfor %}
             </div>
@@ -126,7 +146,7 @@
     {% endif %}
     
     <!-- Таблица результатов -->
-    <div class="card mb-4">
+    <div class="card mb-4" id="results-table">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="card-title mb-0">Результаты анализа</h5>
@@ -287,125 +307,7 @@
     {% endif %}
 </div>
 
-<style>
-    .active-card {
-        border: 2px solid #0d6efd;
-        box-shadow: 0 0 10px rgba(13, 110, 253, 0.5);
-    }
-    
-    .discrepancy-card:hover {
-        transform: translateY(-5px);
-        transition: transform 0.2s ease-in-out;
-    }
-</style>
-
 <script>
-// Функция для обработки клика по карточке
-function handleCardClick(card, pattern, sourcesJson, priznaksJson) {
-    console.log('Клик по карточке через onclick атрибут:', card);
-    console.log('Параметры:', { pattern, sourcesJson, priznaksJson });
-    
-    try {
-        // Парсим JSON данные с проверкой
-        let sources = [];
-        let priznaks = [];
-        
-        try {
-            if (typeof sourcesJson === 'string' && sourcesJson.trim() !== '') {
-                sources = JSON.parse(sourcesJson);
-            } else if (Array.isArray(sourcesJson)) {
-                sources = sourcesJson;
-            }
-        } catch (e) {
-            console.error('Ошибка при парсинге sources:', e);
-        }
-        
-        try {
-            if (typeof priznaksJson === 'string' && priznaksJson.trim() !== '') {
-                priznaks = JSON.parse(priznaksJson);
-            } else if (Array.isArray(priznaksJson)) {
-                priznaks = priznaksJson;
-            }
-        } catch (e) {
-            console.error('Ошибка при парсинге priznaks:', e);
-        }
-        
-        console.log('Данные после парсинга:', {
-            pattern: pattern,
-            sources: sources,
-            priznaks: priznaks
-        });
-        
-        // Устанавливаем значение в селект расхождений
-        const discrepancyFilter = document.getElementById('discrepancyFilter');
-        const cardFilterInput = document.getElementById('cardFilterInput');
-        
-        if (discrepancyFilter && pattern) {
-            discrepancyFilter.value = pattern;
-            
-            // Устанавливаем значение card_filter
-            if (cardFilterInput && sources && sources.length > 0 && priznaks && priznaks.length > 0) {
-                const cardFilterData = {
-                    sources: sources,
-                    priznaks: priznaks
-                };
-                cardFilterInput.value = JSON.stringify(cardFilterData);
-            }
-            
-            // Отправляем форму напрямую
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                filterForm.submit();
-                return false;
-            }
-        }
-        
-        // Если не удалось отправить форму напрямую, создаем новую
-        const form = document.createElement('form');
-        form.method = 'GET';
-        form.action = window.location.pathname;
-        
-        // Добавляем параметры
-        const params = {
-            'batch_id': '{{ batch_id }}',
-            'status': 'discrepancies',
-            'discrepancy_filter': pattern
-        };
-        
-        // Добавляем card_filter только если нужно фильтровать по карточке
-        if (sources && sources.length > 0 && priznaks && priznaks.length > 0) {
-            params['card_filter'] = JSON.stringify({
-                sources: sources,
-                priznaks: priznaks
-            });
-        }
-        
-        for (const key in params) {
-            if (params[key]) {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = key;
-                input.value = params[key];
-                form.appendChild(input);
-            }
-        }
-        
-        // Добавляем форму на страницу и отправляем
-        document.body.appendChild(form);
-        form.submit();
-    } catch (error) {
-        console.error('Ошибка при обработке клика:', error);
-        alert('Ошибка при обработке клика: ' + error);
-    }
-    
-    // Предотвращаем стандартное поведение ссылки
-    if (event) {
-        event.preventDefault();
-        event.stopPropagation();
-    }
-    return false;
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, инициализация скриптов...');
     
@@ -435,72 +337,9 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log(`Найдено ${confirmButtons.length} кнопок подтверждения`);
     
     // Проверяем карточки расхождений
-    console.log('Проверка карточек расхождений:');
     const cards = document.querySelectorAll('.discrepancy-card');
     console.log(`Найдено ${cards.length} карточек расхождений`);
-    
-    cards.forEach((card, index) => {
-        console.log(`Карточка ${index + 1}:`, {
-            pattern: card.dataset.pattern,
-            sources: card.dataset.sources,
-            priznaks: card.dataset.priznaks
-        });
-        
-        // Добавляем прямой обработчик клика
-        card.onclick = function(event) {
-            console.log(`Клик по карточке ${index + 1} (прямой обработчик)`);
-            
-            // Получаем данные карточки
-            const pattern = this.dataset.pattern;
-            const sources = this.dataset.sources;
-            const priznaks = this.dataset.priznaks;
-            
-            console.log('Данные карточки (прямой обработчик):', {
-                pattern: pattern,
-                sources: sources,
-                priznaks: priznaks
-            });
-            
-            // Устанавливаем значение в селект расхождений
-            const discrepancyFilter = document.getElementById('discrepancyFilter');
-            const cardFilterInput = document.getElementById('cardFilterInput');
-            
-            if (discrepancyFilter && pattern) {
-                discrepancyFilter.value = pattern;
-                
-                // Устанавливаем значение card_filter
-                if (cardFilterInput && sources && priznaks) {
-                    try {
-                        const sourcesArray = typeof sources === 'string' ? JSON.parse(sources) : sources;
-                        const priznaksArray = typeof priznaks === 'string' ? JSON.parse(priznaks) : priznaks;
-                        
-                        if (sourcesArray && sourcesArray.length > 0 && priznaksArray && priznaksArray.length > 0) {
-                            const cardFilterData = {
-                                sources: sourcesArray,
-                                priznaks: priznaksArray
-                            };
-                            cardFilterInput.value = JSON.stringify(cardFilterData);
-                        }
-                    } catch (e) {
-                        console.error('Ошибка при установке card_filter:', e);
-                    }
-                }
-                
-                // Отправляем форму напрямую
-                const filterForm = document.getElementById('filterForm');
-                if (filterForm) {
-                    filterForm.submit();
-                    return false;
-                }
-            }
-            
-            // Предотвращаем всплытие события
-            event.preventDefault();
-            event.stopPropagation();
-            return false;
-        };
-    });
-    
+
     // Проверяем форму фильтрации
     const filterForm = document.getElementById('filterForm');
     console.log('Форма фильтрации:', filterForm);
@@ -516,6 +355,21 @@ document.addEventListener('DOMContentLoaded', function() {
         cardFilterInput: cardFilterInput
     });
     
+    // Автоматическая прокрутка к таблице результатов, если есть активные фильтры
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasFilters = urlParams.has('status') || urlParams.has('search') || 
+                      urlParams.has('discrepancy_filter') || urlParams.has('card_filter');
+    
+    if (hasFilters) {
+        console.log('Обнаружены активные фильтры, прокручиваем к таблице результатов');
+        const resultsTable = document.getElementById('results-table');
+        if (resultsTable) {
+            setTimeout(() => {
+                resultsTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+    }
+
     // Обработка сброса фильтров
     document.getElementById('resetFilters').addEventListener('click', function() {
         const form = document.getElementById('filterForm');
@@ -529,6 +383,10 @@ document.addEventListener('DOMContentLoaded', function() {
         searchInput.value = '';
         discrepancyFilter.value = '';
         cardFilterInput.value = '';
+        
+        // Добавляем якорь к URL
+        const formAction = form.action || window.location.pathname;
+        form.action = formAction + '#results-table';
         
         // Отправляем форму
         form.submit();
@@ -548,6 +406,11 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 this.style.transform = 'scale(1)';
             }, 100);
+            
+            // Добавляем якорь к URL
+            const form = statusFilter.form;
+            const formAction = form.action || window.location.pathname;
+            form.action = formAction + '#results-table';
             
             // Отправляем форму
             statusFilter.form.submit();
@@ -910,55 +773,79 @@ document.addEventListener('DOMContentLoaded', function() {
     if (document.getElementById('clearCardFilter')) {
         document.getElementById('clearCardFilter').addEventListener('click', function() {
             document.getElementById('cardFilterInput').value = '';
+            
+            // Добавляем якорь к URL
+            const form = document.getElementById('filterForm');
+            const formAction = form.action || window.location.pathname;
+            form.action = formAction + '#results-table';
+            
             document.getElementById('filterForm').submit();
         });
     }
-});
 
-// Добавляем обработчики кликов на карточки через jQuery
-$(document).ready(function() {
-    $('.discrepancy-card').on('click', function(event) {
-        console.log('jQuery клик по карточке:', this);
-        
-        // Получаем данные карточки
-        const pattern = $(this).data('pattern');
-        const sources = $(this).data('sources');
-        const priznaks = $(this).data('priznaks');
-        
-        console.log('jQuery данные карточки:', {
-            pattern: pattern,
-            sources: sources,
-            priznaks: priznaks
+    // Добавляем обработчики кликов на карточки расхождений
+    cards.forEach(function(card) {
+        card.addEventListener('click', function(event) {
+            console.log('Клик по карточке:', this);
+            
+            // Получаем данные карточки
+            const pattern = this.dataset.pattern;
+            const sourcesJson = this.dataset.sources;
+            const priznaksJson = this.dataset.priznaks;
+            
+            let sources = [];
+            let priznaks = [];
+            
+            try {
+                sources = JSON.parse(sourcesJson);
+            } catch (e) {
+                console.error('Ошибка при парсинге sources:', e);
+            }
+            
+            try {
+                priznaks = JSON.parse(priznaksJson);
+            } catch (e) {
+                console.error('Ошибка при парсинге priznaks:', e);
+            }
+            
+            console.log('Данные карточки:', {
+                pattern: pattern,
+                sources: sources,
+                priznaks: priznaks
+            });
+            
+            // Устанавливаем значение в селект расхождений
+            const discrepancyFilter = document.getElementById('discrepancyFilter');
+            const cardFilterInput = document.getElementById('cardFilterInput');
+            const statusFilter = document.getElementById('statusFilter');
+            
+            if (discrepancyFilter && pattern) {
+                discrepancyFilter.value = pattern;
+                
+                // Устанавливаем статус "Есть расхождения"
+                if (statusFilter) {
+                    statusFilter.value = 'discrepancies';
+                }
+                
+                // Устанавливаем значение card_filter
+                if (cardFilterInput && sources && sources.length > 0 && priznaks && priznaks.length > 0) {
+                    const cardFilterData = {
+                        sources: sources,
+                        priznaks: priznaks
+                    };
+                    cardFilterInput.value = JSON.stringify(cardFilterData);
+                }
+                
+                // Отправляем форму напрямую
+                const filterForm = document.getElementById('filterForm');
+                if (filterForm) {
+                    // Добавляем якорь к URL
+                    const formAction = filterForm.action || window.location.pathname;
+                    filterForm.action = formAction + '#results-table';
+                    filterForm.submit();
+                }
+            }
         });
-        
-        // Устанавливаем значение в селект расхождений
-        const discrepancyFilter = document.getElementById('discrepancyFilter');
-        const cardFilterInput = document.getElementById('cardFilterInput');
-        
-        if (discrepancyFilter && pattern) {
-            discrepancyFilter.value = pattern;
-            
-            // Устанавливаем значение card_filter
-            if (cardFilterInput && sources && sources.length > 0 && priznaks && priznaks.length > 0) {
-                const cardFilterData = {
-                    sources: sources,
-                    priznaks: priznaks
-                };
-                cardFilterInput.value = JSON.stringify(cardFilterData);
-            }
-            
-            // Отправляем форму напрямую
-            const filterForm = document.getElementById('filterForm');
-            if (filterForm) {
-                filterForm.submit();
-                return false;
-            }
-        }
-        
-        // Предотвращаем стандартное поведение ссылки
-        event.preventDefault();
-        event.stopPropagation();
-        return false;
     });
 });
 </script>
