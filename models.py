@@ -121,3 +121,20 @@ class AnalysisResult(db.Model):
     discrepancies = db.Column(db.JSON)
     status = db.Column(db.String(20), default='pending')
     analyzed_by = db.Column(db.String(50))
+
+class TransferRule(db.Model):
+    __tablename__ = 'transfer_rules'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    priority = db.Column(db.Integer, nullable=False)
+    category_name = db.Column(db.String(255), nullable=False)
+    transfer_action = db.Column(db.String(255), nullable=False)
+    condition_type = db.Column(db.String(50), nullable=False)
+    condition_field = db.Column(db.String(255), nullable=False)
+    condition_value = db.Column(db.Text, nullable=False)
+    comment = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<TransferRule {self.id}: {self.category_name} - {self.transfer_action}>'

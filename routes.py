@@ -5,9 +5,9 @@ import logging
 import pandas as pd
 import json
 from database import db
-from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData, FieldMapping, AnalysisResult
+from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule
 from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
-from classification import classify_record, export_batch_results
+from classification import classify_record, export_batch_results, apply_transfer_rules
 from sqlalchemy import func, case
 from werkzeug.utils import secure_filename
 import os
@@ -1571,4 +1571,294 @@ def init_routes(app):
             return jsonify({
                 'success': False,
                 'error': str(e)
-            }), 500 
+            }), 500
+
+    @app.route('/transfer_rules')
+    def transfer_rules():
+        page = request.args.get('page', 1, type=int)
+        per_page = 50  # Количество правил на странице
+        
+        # Получаем правила с пагинацией
+        pagination = TransferRule.query.order_by(TransferRule.priority).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        rules = pagination.items
+        total_pages = pagination.pages
+        
+        return render_template(
+            'transfer_rules.html',
+            rules=rules,
+            page=page,
+            total_pages=total_pages
+        )
+    
+    @app.route('/api/transfer_rules', methods=['POST'])
+    def create_transfer_rule():
+        try:
+            data = request.json
+            
+            # Проверяем обязательные поля
+            required_fields = ['priority', 'category_name', 'transfer_action', 'condition_type', 'condition_field', 'condition_value']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    return jsonify({'success': False, 'error': f'Поле {field} обязательно'}), 400
+            
+            # Создаем новое правило
+            rule = TransferRule(
+                priority=data['priority'],
+                category_name=data['category_name'],
+                transfer_action=data['transfer_action'],
+                condition_type=data['condition_type'],
+                condition_field=data['condition_field'],
+                condition_value=data['condition_value'],
+                comment=data.get('comment', '')
+            )
+            
+            db.session.add(rule)
+            db.session.commit()
+            
+            return jsonify({'success': True, 'rule_id': rule.id})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/transfer_rules/<int:rule_id>', methods=['GET'])
+    def get_transfer_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            return jsonify({
+                'success': True,
+                'rule': {
+                    'id': rule.id,
+                    'priority': rule.priority,
+                    'category_name': rule.category_name,
+                    'transfer_action': rule.transfer_action,
+                    'condition_type': rule.condition_type,
+                    'condition_field': rule.condition_field,
+                    'condition_value': rule.condition_value,
+                    'comment': rule.comment
+                }
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/transfer_rules/<int:rule_id>', methods=['PUT'])
+    def update_transfer_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            data = request.json
+            
+            # Обновляем поля правила
+            rule.priority = data.get('priority', rule.priority)
+            rule.category_name = data.get('category_name', rule.category_name)
+            rule.transfer_action = data.get('transfer_action', rule.transfer_action)
+            rule.condition_type = data.get('condition_type', rule.condition_type)
+            rule.condition_field = data.get('condition_field', rule.condition_field)
+            rule.condition_value = data.get('condition_value', rule.condition_value)
+            rule.comment = data.get('comment', rule.comment)
+            
+            db.session.commit()
+            
+            return jsonify({'success': True})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/transfer_rules/<int:rule_id>', methods=['DELETE'])
+    def delete_transfer_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            db.session.delete(rule)
+            db.session.commit()
+            
+            return jsonify({'success': True})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @app.route('/api/apply_transfer_rules/<batch_id>', methods=['POST'])
+    def apply_transfer_rules_batch(batch_id):
+        """
+        Применяет правила переноса к записям из указанного батча.
+        
+        Важно: Записи с пустыми значениями MSSQL_SXCLASS_MAP обрабатываются правилом с типом IS_EMPTY,
+        поэтому мы не исключаем их из обработки.
+        """
+        try:
+            logging.info(f"[API] Запрос на применение правил переноса для батча {batch_id}")
+            
+            # Получаем записи из указанного батча, которые соответствуют фильтру "Не найдено в исторических данных"
+            # В интерфейсе этот фильтр соответствует записям, у которых:
+            # 1. Нет соответствий в исторических данных (matched_historical_data is None)
+            # 2. Статус 'pending' (не проанализировано)
+            
+            # Сначала получаем ID записей из AnalysisResult, которые соответствуют фильтру "Не найдено в исторических данных"
+            analysis_results = AnalysisResult.query.filter(
+                AnalysisResult.batch_id == batch_id,
+                AnalysisResult.status == 'pending',
+                AnalysisResult.discrepancies.is_(None)
+            ).all()
+            
+            logging.info(f"[API] Найдено {len(analysis_results)} записей в AnalysisResult, соответствующих фильтру 'Не найдено в исторических данных'")
+            
+            if not analysis_results:
+                logging.warning(f"[API] Не найдено записей для применения правил в батче {batch_id}")
+                return jsonify({
+                    'success': False, 
+                    'error': 'Не найдено записей для применения правил или все записи уже имеют соответствия в исторических данных'
+                }), 400
+            
+            # Получаем имена классов из результатов анализа
+            class_names = [result.mssql_sxclass_name for result in analysis_results]
+            
+            # Получаем соответствующие записи из AnalysisData
+            records = AnalysisData.query.filter(
+                AnalysisData.batch_id == batch_id,
+                AnalysisData.mssql_sxclass_name.in_(class_names),
+                AnalysisData.matched_historical_data.is_(None)
+            ).all()
+            
+            logging.info(f"[API] Найдено {len(records)} соответствующих записей в AnalysisData")
+            
+            if not records:
+                logging.warning(f"[API] Не найдено соответствующих записей в AnalysisData для батча {batch_id}")
+                return jsonify({
+                    'success': False, 
+                    'error': 'Не найдено записей для применения правил'
+                }), 400
+            
+            processed_count = 0
+            updated_class_names = []
+            
+            # Статистика по причинам необработки записей
+            unprocessed_stats = {
+                'no_matching_rule': 0,  # Нет подходящего правила
+                'empty_field_values': {},  # Пустые значения полей
+                'processed': 0  # Успешно обработано
+            }
+            
+            # Список необработанных записей с причинами
+            unprocessed_records = []
+            
+            for record in records:
+                logging.info(f"[API] Обработка записи: {record.mssql_sxclass_name}")
+                
+                # Проверяем наличие значений в ключевых полях перед применением правил
+                empty_fields = []
+                if not record.mssql_sxclass_name:
+                    empty_fields.append('MSSQL_SXCLASS_NAME')
+                if not record.mssql_sxclass_description:
+                    empty_fields.append('MSSQL_SXCLASS_DESCRIPTION')
+                # Удаляем проверку на пустое значение MSSQL_SXCLASS_MAP
+                # if not record.mssql_sxclass_map:
+                #     empty_fields.append('MSSQL_SXCLASS_MAP')
+                
+                # Если есть пустые поля (кроме MSSQL_SXCLASS_MAP), добавляем их в статистику
+                if empty_fields:
+                    for field in empty_fields:
+                        unprocessed_stats['empty_field_values'][field] = unprocessed_stats['empty_field_values'].get(field, 0) + 1
+                    
+                    # Добавляем запись в список необработанных с причиной
+                    unprocessed_records.append({
+                        'class_name': record.mssql_sxclass_name or 'Нет имени класса',
+                        'reason': f"Пустые значения полей: {', '.join(empty_fields)}"
+                    })
+                    continue
+                
+                # Применяем правила переноса
+                result = apply_transfer_rules(record)
+                
+                if result['priznak']:
+                    logging.info(f"[API] Установлен признак '{result['priznak']}' для {record.mssql_sxclass_name}")
+                    # Обновляем запись с результатом применения правил
+                    record.priznak = result['priznak']
+                    record.confidence_score = result['confidence']
+                    record.classified_by = 'transfer_rule'
+                    record.rule_info = json.dumps({
+                        'rule_id': result['rule_id'],
+                        'category': result['category'],
+                        'transfer_action': result['transfer_action']
+                    })
+                    # Обновляем статус на "проанализировано"
+                    record.analysis_state = 'analyzed'
+                    processed_count += 1
+                    updated_class_names.append(record.mssql_sxclass_name)
+                    unprocessed_stats['processed'] += 1
+                else:
+                    logging.info(f"[API] Не найдено подходящих правил для {record.mssql_sxclass_name}")
+                    unprocessed_stats['no_matching_rule'] += 1
+                    
+                    # Добавляем запись в список необработанных с причиной
+                    unprocessed_records.append({
+                        'class_name': record.mssql_sxclass_name,
+                        'reason': 'Нет подходящего правила переноса'
+                    })
+            
+            # Обновляем соответствующие записи в AnalysisResult
+            if updated_class_names:
+                for result in analysis_results:
+                    if result.mssql_sxclass_name in updated_class_names:
+                        # Находим соответствующую запись в AnalysisData
+                        analysis_data = next((r for r in records if r.mssql_sxclass_name == result.mssql_sxclass_name), None)
+                        if analysis_data and analysis_data.priznak:
+                            result.priznak = analysis_data.priznak
+                            result.confidence_score = analysis_data.confidence_score
+                            result.analyzed_by = 'transfer_rule'
+                            result.status = 'analyzed'
+            
+            db.session.commit()
+            logging.info(f"[API] Правила применены к {processed_count} из {len(records)} записей")
+            
+            # Формируем статистику для отображения пользователю
+            total_records = len(records)
+            unprocessed_count = total_records - processed_count
+            
+            # Формируем сообщение с детальной статистикой
+            message = f'Правила применены к {processed_count} из {total_records} записей.'
+            
+            if unprocessed_count > 0:
+                message += f'\n\nНе обработано: {unprocessed_count} записей.'
+                
+                if unprocessed_stats['no_matching_rule'] > 0:
+                    message += f'\n- {unprocessed_stats["no_matching_rule"]} записей не имеют подходящих правил переноса.'
+                
+                if unprocessed_stats['empty_field_values']:
+                    message += '\n- Записи с пустыми значениями полей:'
+                    for field, count in unprocessed_stats['empty_field_values'].items():
+                        message += f'\n  • {field}: {count} записей'
+                
+                # Добавляем примеры необработанных записей (максимум 5)
+                if unprocessed_records:
+                    examples = unprocessed_records[:5]
+                    message += '\n\nПримеры необработанных записей:'
+                    for i, example in enumerate(examples, 1):
+                        message += f'\n{i}. {example["class_name"]} - {example["reason"]}'
+                    
+                    if len(unprocessed_records) > 5:
+                        message += f'\n... и еще {len(unprocessed_records) - 5} записей'
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'statistics': {
+                    'total': total_records,
+                    'processed': processed_count,
+                    'unprocessed': unprocessed_count,
+                    'unprocessed_stats': unprocessed_stats,
+                    'unprocessed_examples': unprocessed_records[:5] if unprocessed_records else []
+                }
+            })
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"[API] Ошибка при применении правил: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500 

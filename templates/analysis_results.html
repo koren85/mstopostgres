@@ -101,6 +101,14 @@
                         <i class="bi bi-x-circle"></i> Сбросить фильтры
                     </button>
                 </div>
+                {% if current_status == 'no_matches' %}
+                <div class="col-md-12 mt-3">
+                    <button type="button" class="btn btn-warning" id="applyTransferRules">
+                        <i class="bi bi-magic"></i> Применить правила переноса
+                    </button>
+                    <small class="text-muted ms-2">Применяет правила переноса к записям, не найденным в исторических данных</small>
+                </div>
+                {% endif %}
             </form>
             
             {% if current_card_filter %}
@@ -310,6 +318,7 @@
 </div>
 
 <script>
+// Основной скрипт для страницы
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, инициализация скриптов...');
     
@@ -849,6 +858,194 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+});
+
+// Отдельный обработчик для кнопки применения правил переноса
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Инициализация обработчика кнопки применения правил переноса');
+    const applyRulesBtn = document.getElementById('applyTransferRules');
+    console.log('Кнопка найдена:', applyRulesBtn);
+    
+    if (applyRulesBtn) {
+        console.log('Добавляем обработчик события click для кнопки применения правил');
+        applyRulesBtn.addEventListener('click', function(event) {
+            console.log('Кнопка нажата');
+            event.preventDefault(); // Предотвращаем стандартное поведение кнопки
+            
+            if (confirm('Вы уверены, что хотите применить правила переноса к записям, не найденным в исторических данных?')) {
+                console.log('Пользователь подтвердил применение правил');
+                // Показываем индикатор загрузки
+                applyRulesBtn.disabled = true;
+                applyRulesBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Применение правил...';
+                
+                // Получаем batch_id из URL, так как шаблонная строка не работает
+                const urlParams = new URLSearchParams(window.location.search);
+                const batchId = urlParams.get('batch_id');
+                console.log('ID батча из URL:', batchId);
+                
+                if (!batchId) {
+                    alert('Ошибка: ID батча не найден');
+                    applyRulesBtn.disabled = false;
+                    applyRulesBtn.innerHTML = '<i class="bi bi-magic"></i> Применить правила переноса';
+                    return;
+                }
+                
+                // Отправляем запрос на применение правил
+                fetch(`/api/apply_transfer_rules/${batchId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    console.log('Получен ответ от сервера:', response);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Данные ответа:', data);
+                    if (data.success) {
+                        // Создаем модальное окно для отображения статистики
+                        const statsModal = document.createElement('div');
+                        statsModal.className = 'modal fade';
+                        statsModal.id = 'transferRulesStatsModal';
+                        statsModal.setAttribute('tabindex', '-1');
+                        statsModal.setAttribute('aria-labelledby', 'transferRulesStatsModalLabel');
+                        statsModal.setAttribute('aria-hidden', 'true');
+                        
+                        // Форматируем сообщение для отображения в модальном окне
+                        const formattedMessage = data.message.replace(/\n/g, '<br>');
+                        
+                        // Создаем содержимое модального окна
+                        statsModal.innerHTML = `
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title" id="transferRulesStatsModalLabel">Результаты применения правил переноса</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <div class="row mb-4">
+                                            <div class="col-md-4">
+                                                <div class="card bg-primary text-white">
+                                                    <div class="card-body text-center">
+                                                        <h5 class="card-title">Всего записей</h5>
+                                                        <h2 class="card-text">${data.statistics.total}</h2>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="card bg-success text-white">
+                                                    <div class="card-body text-center">
+                                                        <h5 class="card-title">Обработано</h5>
+                                                        <h2 class="card-text">${data.statistics.processed}</h2>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <div class="card ${data.statistics.unprocessed > 0 ? 'bg-warning' : 'bg-light'} ${data.statistics.unprocessed > 0 ? 'text-dark' : 'text-muted'}">
+                                                    <div class="card-body text-center">
+                                                        <h5 class="card-title">Не обработано</h5>
+                                                        <h2 class="card-text">${data.statistics.unprocessed}</h2>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="alert alert-info">
+                                            <p>${formattedMessage}</p>
+                                        </div>
+                                        
+                                        ${data.statistics.unprocessed > 0 ? `
+                                        <div class="mt-4">
+                                            <h6>Причины необработки:</h6>
+                                            <ul>
+                                                ${data.statistics.unprocessed_stats.no_matching_rule > 0 ? 
+                                                `<li>Нет подходящего правила: ${data.statistics.unprocessed_stats.no_matching_rule} записей</li>` : ''}
+                                                
+                                                ${Object.keys(data.statistics.unprocessed_stats.empty_field_values).length > 0 ? 
+                                                `<li>Пустые значения полей:
+                                                    <ul>
+                                                        ${Object.entries(data.statistics.unprocessed_stats.empty_field_values).map(([field, count]) => 
+                                                            `<li>${field}: ${count} записей</li>`
+                                                        ).join('')}
+                                                    </ul>
+                                                </li>` : ''}
+                                            </ul>
+                                        </div>
+                                        
+                                        ${data.statistics.unprocessed_examples && data.statistics.unprocessed_examples.length > 0 ? `
+                                        <div class="mt-4">
+                                            <h6>Примеры необработанных записей:</h6>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>Имя класса</th>
+                                                            <th>Причина</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        ${data.statistics.unprocessed_examples.map((example, index) => `
+                                                            <tr>
+                                                                <td>${index + 1}</td>
+                                                                <td>${example.class_name}</td>
+                                                                <td>${example.reason}</td>
+                                                            </tr>
+                                                        `).join('')}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            ${data.statistics.unprocessed > data.statistics.unprocessed_examples.length ? 
+                                            `<div class="text-muted small">Показано ${data.statistics.unprocessed_examples.length} из ${data.statistics.unprocessed} необработанных записей</div>` : ''}
+                                        </div>
+                                        ` : ''}
+                                        ` : ''}
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="reloadAfterRules">Обновить страницу</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // Добавляем модальное окно в DOM
+                        document.body.appendChild(statsModal);
+                        
+                        // Показываем модальное окно
+                        const modal = new bootstrap.Modal(document.getElementById('transferRulesStatsModal'));
+                        modal.show();
+                        
+                        // Добавляем обработчик для кнопки "Обновить страницу"
+                        document.getElementById('reloadAfterRules').addEventListener('click', function() {
+                            window.location.reload();
+                        });
+                        
+                        // Добавляем обработчик события закрытия модального окна
+                        document.getElementById('transferRulesStatsModal').addEventListener('hidden.bs.modal', function() {
+                            window.location.reload();
+                        });
+                    } else {
+                        alert('Ошибка: ' + data.error);
+                        // Восстанавливаем кнопку
+                        applyRulesBtn.disabled = false;
+                        applyRulesBtn.innerHTML = '<i class="bi bi-magic"></i> Применить правила переноса';
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при выполнении запроса:', error);
+                    alert('Произошла ошибка при применении правил');
+                    // Восстанавливаем кнопку
+                    applyRulesBtn.disabled = false;
+                    applyRulesBtn.innerHTML = '<i class="bi bi-magic"></i> Применить правила переноса';
+                });
+            } else {
+                console.log('Пользователь отменил применение правил');
+            }
+        });
+    } else {
+        console.warn('Кнопка применения правил не найдена на странице');
+    }
 });
 </script>
 {% endblock %} 

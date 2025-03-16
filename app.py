@@ -8,6 +8,7 @@ import pandas as pd  # Явный импорт pandas
 from dotenv import load_dotenv  # Добавляем импорт dotenv
 from database import db  # Импортируем db из database.py
 from routes import init_routes
+from db_setup import init_transfer_rules  # Добавляем импорт функции инициализации правил
 import json
 # Проверяем наличие openpyxl
 try:
@@ -180,6 +181,9 @@ def create_app():
         else:
             logging.info("Таблица classification_rules не существует, будет создана")
             db.create_all()
+
+        # Инициализируем правила переноса
+        init_transfer_rules()
 
         # Initialize routes
         init_routes(app)

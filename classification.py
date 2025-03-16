@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import func, text
 from database import db
-from models import MigrationClass, ClassificationRule, Discrepancy
+from models import MigrationClass, ClassificationRule, Discrepancy, TransferRule
 import logging
 
 def create_batch_id():
@@ -167,3 +167,118 @@ def analyze_batch_discrepancies(batch_id):
         db.session.rollback()
         logging.error(f"[АНАЛИЗ] Ошибка при анализе несоответствий: {str(e)}", exc_info=True)
         raise
+
+def apply_transfer_rules(record):
+    """
+    Применяет правила переноса к записи и определяет признак
+    
+    Args:
+        record: объект AnalysisData или MigrationClass
+        
+    Returns:
+        dict с результатами применения правил:
+        {
+            'priznak': определенный признак,
+            'rule_id': ID правила, которое сработало,
+            'category': категория правила,
+            'transfer_action': действие по переносу,
+            'confidence': уверенность (всегда 1.0 для правил)
+        }
+    """
+    logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Начинаем применение правил для: {record.mssql_sxclass_name}")
+    
+    # Получаем все правила, отсортированные по приоритету
+    rules = TransferRule.query.order_by(TransferRule.priority).all()
+    logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Загружено {len(rules)} правил")
+    
+    for rule in rules:
+        logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Проверяем правило #{rule.id}: {rule.category_name} - {rule.condition_type} - {rule.condition_field}")
+        # Проверяем соответствие правилу
+        match = False
+        
+        # Получаем значение поля для проверки
+        field_value = None
+        if rule.condition_field == 'MSSQL_SXCLASS_NAME':
+            field_value = record.mssql_sxclass_name
+        elif rule.condition_field == 'MSSQL_SXCLASS_DESCRIPTION':
+            field_value = record.mssql_sxclass_description
+        elif rule.condition_field == 'MSSQL_SXCLASS_MAP':
+            field_value = record.mssql_sxclass_map
+        elif rule.condition_field == 'Родительский класс':
+            field_value = record.parent_class
+        elif rule.condition_field == 'Создал':
+            field_value = record.created_by
+        
+        logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Значение поля {rule.condition_field}: {field_value}, тип: {type(field_value)}")
+        
+        # Проверяем условие
+        if rule.condition_type == 'IS_EMPTY':
+            # Проверяем, что поле пустое
+            is_none = field_value is None
+            is_empty_string = isinstance(field_value, str) and field_value.strip() == ''
+            match = is_none or is_empty_string
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] IS_EMPTY: поле={field_value}, is_none={is_none}, is_empty_string={is_empty_string}, match={match}")
+            
+        # Если поле пустое и условие не IS_EMPTY, пропускаем правило
+        elif not field_value and rule.condition_type != 'ALWAYS_TRUE':
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Пропускаем правило #{rule.id}, т.к. значение поля пустое")
+            continue
+            
+        # Проверяем другие типы условий
+        elif rule.condition_type == 'EXACT_EQUALS':
+            # Проверяем на точное совпадение с любым из значений, разделенных точкой с запятой
+            values = rule.condition_value.split(';')
+            match = any(value.strip() == field_value for value in values)
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] EXACT_EQUALS: {values} == {field_value} -> {match}")
+            
+        elif rule.condition_type == 'STARTS_WITH':
+            # Проверяем, начинается ли поле с любого из значений, разделенных точкой с запятой
+            values = rule.condition_value.split(';')
+            match = any(field_value.startswith(value.strip()) for value in values)
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] STARTS_WITH: {field_value} начинается с {values} -> {match}")
+            
+        elif rule.condition_type == 'CONTAINS':
+            # Проверяем, содержит ли поле любое из значений, разделенных точкой с запятой
+            values = rule.condition_value.split(';')
+            match = any(value.strip() in field_value for value in values)
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] CONTAINS: {field_value} содержит {values} -> {match}")
+            
+        elif rule.condition_type == 'ALWAYS_TRUE':
+            # Правило-заглушка, которое всегда срабатывает
+            match = True
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] ALWAYS_TRUE -> {match}")
+        
+        # Если правило сработало, возвращаем результат
+        if match:
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Сработало правило #{rule.id}: {rule.category_name} - {rule.transfer_action}")
+            
+            # Определяем признак на основе действия по переносу
+            priznak = None
+            if rule.transfer_action == 'Переносим':
+                priznak = 'Переносим'
+            elif rule.transfer_action == 'Переносим пакетом':
+                priznak = 'Переносим пакетом'
+            elif rule.transfer_action == 'Не переносим':
+                priznak = 'Не переносим'
+            
+            logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Установлен признак: {priznak}")
+            
+            return {
+                'priznak': priznak,
+                'rule_id': rule.id,
+                'category': rule.category_name,
+                'transfer_action': rule.transfer_action,
+                'confidence': 1.0,  # Для правил уверенность всегда 100%
+                'method': 'transfer_rule'
+            }
+    
+    # Если ни одно правило не сработало, возвращаем None
+    logging.info(f"[ПРАВИЛА ПЕРЕНОСА] Не найдено подходящих правил для: {record.mssql_sxclass_name}")
+    return {
+        'priznak': None,
+        'rule_id': None,
+        'category': None,
+        'transfer_action': None,
+        'confidence': 0,
+        'method': None
+    }
