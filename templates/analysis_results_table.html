@@ -40,19 +40,19 @@
     <div class="card-body">
         <h5 class="card-title">Статистика по расхождениям</h5>
         <div class="row">
-            {% for source, priznaks in discrepancy_stats.items() %}
+            {% for discrepancy_pattern, stats in discrepancy_stats.items() %}
             <div class="col-md-4 mb-3">
-                <div class="card h-100 discrepancy-card" data-source="{{ source }}" style="cursor: pointer;">
+                <div class="card h-100 discrepancy-card {% if current_card_filter and discrepancy_pattern == current_discrepancy %}active-card{% endif %}" 
+                     data-pattern="{{ discrepancy_pattern }}" 
+                     data-sources="{{ stats.sources|tojson|safe }}" 
+                     data-priznaks="{{ stats.priznaks|tojson|safe }}"
+                     style="cursor: pointer;">
                     <div class="card-body">
-                        <h6 class="card-title">Источник: {{ source }}</h6>
-                        <div class="discrepancy-group">
-                            {% for priznak, count in priznaks.items() %}
-                                <div class="discrepancy-item mb-2">
-                                    <strong>{{ priznak }}:</strong> {{ count }} записей
-                                </div>
-                            {% endfor %}
-                        </div>
-                        <p class="card-text mt-3">Всего записей: {{ priznaks|length }}</p>
+                        <h6 class="card-title">{{ stats.sources|join(', ') }}</h6>
+                        <p class="card-text">
+                            Признак: {{ stats.priznaks|join(', ') }}<br>
+                            Количество записей: {{ stats.count }}
+                        </p>
                     </div>
                 </div>
             </div>
