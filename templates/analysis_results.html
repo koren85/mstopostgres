@@ -804,7 +804,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Добавляем обработчики кликов на карточки расхождений
-    cards.forEach(function(card) {
+    document.querySelectorAll('.discrepancy-card').forEach(function(card) {
         card.addEventListener('click', function(event) {
             console.log('Клик по карточке:', this);
             
@@ -813,26 +813,28 @@ document.addEventListener('DOMContentLoaded', function() {
             const sourcesJson = this.dataset.sources;
             const priznaksJson = this.dataset.priznaks;
             
+            console.log('Сырые данные карточки:', {
+                pattern,
+                sourcesJson,
+                priznaksJson
+            });
+            
             let sources = [];
             let priznaks = [];
             
             try {
                 sources = JSON.parse(sourcesJson);
+                console.log('Распарсенные источники:', sources);
             } catch (e) {
-                console.error('Ошибка при парсинге sources:', e);
+                console.error('Ошибка при парсинге sources:', e, sourcesJson);
             }
             
             try {
                 priznaks = JSON.parse(priznaksJson);
+                console.log('Распарсенные признаки:', priznaks);
             } catch (e) {
-                console.error('Ошибка при парсинге priznaks:', e);
+                console.error('Ошибка при парсинге priznaks:', e, priznaksJson);
             }
-            
-            console.log('Данные карточки:', {
-                pattern: pattern,
-                sources: sources,
-                priznaks: priznaks
-            });
             
             // Устанавливаем значение в селект расхождений
             const discrepancyFilter = document.getElementById('discrepancyFilter');
@@ -840,10 +842,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const statusFilter = document.getElementById('statusFilter');
             
             if (discrepancyFilter && pattern) {
+                console.log('Устанавливаем значение фильтра расхождений:', pattern);
                 discrepancyFilter.value = pattern;
                 
                 // Устанавливаем статус "Есть расхождения"
                 if (statusFilter) {
+                    console.log('Устанавливаем статус "Есть расхождения"');
                     statusFilter.value = 'discrepancies';
                 }
                 
@@ -853,17 +857,26 @@ document.addEventListener('DOMContentLoaded', function() {
                         sources: sources,
                         priznaks: priznaks
                     };
+                    console.log('Устанавливаем значение card_filter:', cardFilterData);
                     cardFilterInput.value = JSON.stringify(cardFilterData);
                 }
                 
-                // Отправляем форму напрямую
+                // Отправляем форму
                 const filterForm = document.getElementById('filterForm');
                 if (filterForm) {
+                    console.log('Отправляем форму фильтрации');
                     // Добавляем якорь к URL
                     const formAction = filterForm.action || window.location.pathname;
                     filterForm.action = formAction + '#results-table';
                     filterForm.submit();
+                } else {
+                    console.error('Форма фильтрации не найдена!');
                 }
+            } else {
+                console.error('Не найден фильтр расхождений или отсутствует pattern:', {
+                    discrepancyFilter: !!discrepancyFilter,
+                    pattern: pattern
+                });
             }
         });
     });
