@@ -34,22 +34,6 @@ class MigrationClass(db.Model):
     confidence_score = db.Column(db.Float)  # Уверенность классификации
     classified_by = db.Column(db.String(50))  # manual, rule, or ai
 
-class ClassificationRule(db.Model):
-    __tablename__ = 'classification_rules'
-
-    id = db.Column(db.Integer, primary_key=True)
-    pattern = db.Column(db.String(255), nullable=False)
-    field = db.Column(db.String(50), nullable=False)  # name, description
-    priznak_value = db.Column(db.String(50), nullable=False)
-    priority = db.Column(db.Integer, default=0)
-    created_date = db.Column(db.DateTime, default=datetime.utcnow)
-    confidence_threshold = db.Column(db.Float, default=0.8)
-    source_batch_id = db.Column(db.String(36), nullable=True)
-    category_name = db.Column(db.String(255), nullable=True)
-    condition_type = db.Column(db.String(50), nullable=True)
-    transfer_action = db.Column(db.String(255), nullable=True)
-    comment = db.Column(db.Text, nullable=True)
-
 class Discrepancy(db.Model):
     __tablename__ = 'discrepancies'
 

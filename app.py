@@ -55,7 +55,7 @@ def create_app():
 
     with app.app_context():
         # Import routes and models after db initialization
-        from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData
+        from models import MigrationClass, Discrepancy, AnalysisData
         from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
         from classification import classify_record, export_batch_results
 

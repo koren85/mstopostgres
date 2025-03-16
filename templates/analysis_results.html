@@ -165,6 +165,9 @@
                     <button id="applySelected" class="btn btn-primary me-2" disabled>
                         Применить к выбранным
                     </button>
+                    <button id="createRuleFromSelected" class="btn btn-info me-2" disabled>
+                        <i class="bi bi-plus-circle"></i> Создать правило из выбранных
+                    </button>
                     <button id="applyAll" class="btn btn-success">
                         Применить ко всем
                     </button>
@@ -744,15 +747,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Функция для обновления состояния кнопки "Применить к выбранным"
     function updateApplyButton() {
-        const selectedCount = document.querySelectorAll('.result-checkbox:checked').length;
+        const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
         const applySelectedBtn = document.getElementById('applySelected');
-        if (applySelectedBtn) {
-            applySelectedBtn.disabled = selectedCount === 0;
-            if (selectedCount > 0) {
-                applySelectedBtn.textContent = `Применить к выбранным (${selectedCount})`;
-            } else {
-                applySelectedBtn.textContent = 'Применить к выбранным';
-            }
+        const createRuleFromSelectedBtn = document.getElementById('createRuleFromSelected');
+        
+        if (selectedCheckboxes.length > 0) {
+            applySelectedBtn.disabled = false;
+            createRuleFromSelectedBtn.disabled = false;
+            applySelectedBtn.textContent = `Применить к выбранным (${selectedCheckboxes.length})`;
+        } else {
+            applySelectedBtn.disabled = true;
+            createRuleFromSelectedBtn.disabled = true;
+            applySelectedBtn.textContent = 'Применить к выбранным';
         }
     }
 
@@ -1161,6 +1167,61 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('rule_transfer_action').addEventListener('change', function() {
         document.getElementById('rule_priznak_value').value = this.value;
     });
+});
+
+// Обработчик для кнопки "Создать правило из выбранных"
+document.getElementById('createRuleFromSelected').addEventListener('click', function() {
+    const selectedCheckboxes = document.querySelectorAll('.result-checkbox:checked');
+    if (selectedCheckboxes.length === 0) {
+        alert('Не выбрано ни одной записи');
+        return;
+    }
+    
+    // Собираем имена классов из выбранных строк
+    const classNames = [];
+    selectedCheckboxes.forEach(checkbox => {
+        const row = checkbox.closest('tr');
+        const className = row.querySelector('td:nth-child(3)').textContent.trim();
+        classNames.push(className);
+    });
+    
+    // Объединяем имена классов через точку с запятой
+    const pattern = classNames.join(';');
+    
+    // Получаем значение признака из первой выбранной строки
+    const firstRow = selectedCheckboxes[0].closest('tr');
+    const priznak = firstRow.querySelector('.priznak-select').value;
+    const batchId = new URLSearchParams(window.location.search).get('batch_id');
+    
+    // Заполняем форму создания правила
+    document.getElementById('rule_pattern').value = pattern;
+    document.getElementById('rule_field').value = 'MSSQL_SXCLASS_NAME';
+    document.getElementById('rule_transfer_action').value = priznak;
+    document.getElementById('rule_priznak_value').value = priznak;
+    document.getElementById('rule_source_batch_id').value = batchId;
+    document.getElementById('rule_condition_type').value = 'EXACT_EQUALS';
+    document.getElementById('rule_category_name').value = 'Автоматически созданное правило';
+    
+    // Получаем максимальный приоритет из существующих правил переноса
+    fetch('/api/get_max_transfer_rule_priority')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('rule_priority').value = data.next_priority;
+            } else {
+                // Если не удалось получить приоритет правил переноса, используем API классификации
+                getMaxPriority();
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка при запросе максимального приоритета правил переноса:', error);
+            // Если не удалось получить приоритет правил переноса, используем API классификации
+            getMaxPriority();
+        });
+    
+    // Открываем модальное окно
+    const modal = new bootstrap.Modal(document.getElementById('createRuleModal'));
+    modal.show();
 });
 </script>
 

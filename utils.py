@@ -4,7 +4,7 @@ import uuid
 import pandas as pd
 from datetime import datetime
 from database import db
-from models import MigrationClass, ClassificationRule
+from models import MigrationClass
 from sqlalchemy import func
 
 def process_excel_file(file, source_system):

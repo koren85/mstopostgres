@@ -138,7 +138,7 @@ def init_routes(app):
     def manage():
         try:
             # Получаем все правила классификации
-            rules = ClassificationRule.query.order_by(ClassificationRule.priority.desc()).all()
+            rules = TransferRule.query.filter(TransferRule.priznak_value.isnot(None)).order_by(TransferRule.priority.desc()).all()
             
             # Получаем все несоответствия
             discrepancies = Discrepancy.query.all()
