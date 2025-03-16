@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy import func, text
 from database import db
-from models import MigrationClass, ClassificationRule, Discrepancy, TransferRule
+from models import MigrationClass, Discrepancy, TransferRule
 import logging
 
 def create_batch_id():
@@ -60,8 +60,9 @@ def classify_record(record):
 
             # Получаем правила, безопасно извлекая только гарантированно существующие данные
             rules_query = text("""
-                SELECT id, pattern, field, priznak_value, priority, confidence_threshold
-                FROM classification_rules 
+                SELECT id, condition_value, condition_field, priznak_value, priority, confidence_threshold
+                FROM transfer_rules 
+                WHERE priznak_value IS NOT NULL
                 ORDER BY priority DESC
             """)
 

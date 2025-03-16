@@ -251,6 +251,9 @@
                                     Подтвердить
                                 </button>
                                 {% endif %}
+                                <button class="btn btn-sm btn-info create-rule-btn" title="Создать правило на основе этой записи">
+                                    <i class="bi bi-magic"></i>
+                                </button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -1047,5 +1050,208 @@ document.addEventListener('DOMContentLoaded', function() {
         console.warn('Кнопка применения правил не найдена на странице');
     }
 });
+
+// Скрипт для создания правила классификации
+document.addEventListener('DOMContentLoaded', function() {
+    // Функция для получения максимального приоритета
+    function getMaxPriority() {
+        fetch('/api/get_max_priority')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('rule_priority').value = data.next_priority;
+                } else {
+                    console.error('Ошибка при получении максимального приоритета:', data.error);
+                    document.getElementById('rule_priority').value = 10;
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при запросе максимального приоритета:', error);
+                document.getElementById('rule_priority').value = 10;
+            });
+    }
+    
+    // Обработчик для кнопки "Создать правило" в таблице
+    document.addEventListener('click', function(event) {
+        if (event.target.classList.contains('create-rule-btn') || 
+            (event.target.parentElement && event.target.parentElement.classList.contains('create-rule-btn'))) {
+            // Получаем кнопку (может быть сам элемент или его родитель, если кликнули на иконку)
+            const button = event.target.classList.contains('create-rule-btn') ? 
+                event.target : event.target.parentElement;
+            
+            // Получаем данные из строки таблицы
+            const row = button.closest('tr');
+            const className = row.querySelector('td:nth-child(3)').textContent.trim();
+            const tableName = row.querySelector('td:nth-child(4)').textContent.trim();
+            const priznak = row.querySelector('.priznak-select').value;
+            const batchId = new URLSearchParams(window.location.search).get('batch_id');
+            
+            // Заполняем форму создания правила
+            document.getElementById('rule_pattern').value = className;
+            document.getElementById('rule_field').value = 'MSSQL_SXCLASS_NAME';
+            document.getElementById('rule_transfer_action').value = priznak;
+            document.getElementById('rule_priznak_value').value = priznak;
+            document.getElementById('rule_source_batch_id').value = batchId;
+            document.getElementById('rule_condition_type').value = 'EXACT_EQUALS';
+            document.getElementById('rule_category_name').value = 'Автоматически созданное правило';
+            
+            // Получаем максимальный приоритет из существующих правил переноса
+            fetch('/api/get_max_transfer_rule_priority')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('rule_priority').value = data.next_priority;
+                    } else {
+                        // Если не удалось получить приоритет правил переноса, используем API классификации
+                        getMaxPriority();
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при запросе максимального приоритета правил переноса:', error);
+                    // Если не удалось получить приоритет правил переноса, используем API классификации
+                    getMaxPriority();
+                });
+            
+            // Открываем модальное окно
+            const modal = new bootstrap.Modal(document.getElementById('createRuleModal'));
+            modal.show();
+        }
+    });
+    
+    // Обработчик для кнопки "Сохранить правило"
+    document.getElementById('saveRule').addEventListener('click', function() {
+        const formData = new FormData(document.getElementById('createRuleForm'));
+        const data = Object.fromEntries(formData.entries());
+        
+        // Устанавливаем значение признака равным значению действия
+        data.priznak_value = data.transfer_action;
+        
+        // Проверяем обязательные поля
+        if (!data.pattern || !data.field || !data.priznak_value || !data.condition_type || !data.category_name) {
+            alert('Пожалуйста, заполните все обязательные поля');
+            return;
+        }
+        
+        // Отправляем запрос на создание правила
+        fetch('/api/classification_rules', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Правило успешно создано');
+                // Закрываем модальное окно
+                const modal = bootstrap.Modal.getInstance(document.getElementById('createRuleModal'));
+                modal.hide();
+            } else {
+                alert('Ошибка при создании правила: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка при создании правила:', error);
+            alert('Произошла ошибка при создании правила');
+        });
+    });
+    
+    // Обработчик для синхронизации значения признака с действием
+    document.getElementById('rule_transfer_action').addEventListener('change', function() {
+        document.getElementById('rule_priznak_value').value = this.value;
+    });
+});
 </script>
+
+<!-- Модальное окно для создания правила классификации -->
+<div class="modal fade" id="createRuleModal" tabindex="-1" aria-labelledby="createRuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createRuleModalLabel">Создать правило классификации</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createRuleForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="rule_priority" class="form-label">Приоритет</label>
+                            <input type="number" class="form-control" id="rule_priority" name="priority" required>
+                            <small class="form-text text-muted">Чем выше значение, тем выше приоритет правила</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="rule_category_name" class="form-label">Категория</label>
+                            <input type="text" class="form-control" id="rule_category_name" name="category_name" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="rule_transfer_action" class="form-label">Действие</label>
+                        <select class="form-select" id="rule_transfer_action" name="transfer_action" required>
+                            <option value="">Выберите действие</option>
+                            <option value="Переносим">Переносим</option>
+                            <option value="Переносим пакетом">Переносим пакетом</option>
+                            <option value="Не переносим">Не переносим</option>
+                            <option value="Нет данных">Нет данных</option>
+                        </select>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="rule_condition_type" class="form-label">Тип условия</label>
+                            <select class="form-select" id="rule_condition_type" name="condition_type" required>
+                                <option value="">Выберите тип условия</option>
+                                <option value="EXACT_EQUALS">Точное совпадение</option>
+                                <option value="STARTS_WITH">Начинается с</option>
+                                <option value="CONTAINS">Содержит</option>
+                                <option value="IS_EMPTY">Пусто</option>
+                                <option value="ALWAYS_TRUE">Всегда истинно</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="rule_field" class="form-label">Поле для поиска</label>
+                            <select class="form-select" id="rule_field" name="field" required>
+                                <option value="name">Имя класса (mssql_sxclass_name)</option>
+                                <option value="description">Описание (mssql_sxclass_description)</option>
+                                <option value="MSSQL_SXCLASS_NAME">MSSQL_SXCLASS_NAME</option>
+                                <option value="MSSQL_SXCLASS_DESCRIPTION">MSSQL_SXCLASS_DESCRIPTION</option>
+                                <option value="MSSQL_SXCLASS_MAP">MSSQL_SXCLASS_MAP</option>
+                                <option value="Родительский класс">Родительский класс</option>
+                                <option value="Создал">Создал</option>
+                                <option value="-">-</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="rule_pattern" class="form-label">Шаблон</label>
+                        <input type="text" class="form-control" id="rule_pattern" name="pattern" required>
+                        <small class="form-text text-muted">Строка для поиска в выбранном поле</small>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="rule_confidence" class="form-label">Порог уверенности</label>
+                            <input type="number" class="form-control" id="rule_confidence" name="confidence_threshold" value="0.8" min="0" max="1" step="0.1">
+                            <small class="form-text text-muted">Значение от 0 до 1, по умолчанию 0.8</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="rule_comment" class="form-label">Комментарий</label>
+                            <textarea class="form-control" id="rule_comment" name="comment" rows="2"></textarea>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="rule_source_batch_id" name="source_batch_id">
+                    <input type="hidden" id="rule_priznak_value" name="priznak_value">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="saveRule">Сохранить правило</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %} 

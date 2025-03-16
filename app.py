@@ -9,6 +9,7 @@ from dotenv import load_dotenv  # Добавляем импорт dotenv
 from database import db  # Импортируем db из database.py
 from routes import init_routes
 from db_setup import init_transfer_rules  # Добавляем импорт функции инициализации правил
+from migrations import run_migrations  # Импортируем функцию миграции
 import json
 # Проверяем наличие openpyxl
 try:
@@ -64,6 +65,11 @@ def create_app():
         logging.info("Создаем таблицы базы данных, если они не существуют...")
         db.create_all()
         logging.info("Таблицы базы данных созданы.")
+        
+        # Запускаем миграции для добавления новых полей
+        logging.info("Запускаем миграции...")
+        run_migrations()
+        logging.info("Миграции выполнены.")
         
         # Check if required columns exist, if not, add them
         from sqlalchemy import inspect, text

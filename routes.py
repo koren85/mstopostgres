@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 import json
 from database import db
-from models import MigrationClass, ClassificationRule, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule
+from models import MigrationClass, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule
 from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
 from classification import classify_record, export_batch_results, apply_transfer_rules
 from sqlalchemy import func, case
@@ -1593,6 +1593,28 @@ def init_routes(app):
             total_pages=total_pages
         )
     
+    @app.route('/classification_rules')
+    def classification_rules():
+        page = request.args.get('page', 1, type=int)
+        per_page = 50  # Количество правил на странице
+        
+        # Получаем правила с пагинацией
+        pagination = TransferRule.query.filter(TransferRule.priznak_value.isnot(None)).order_by(TransferRule.priority).paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        rules = pagination.items
+        total_pages = pagination.pages
+        
+        logging.info(f"[СТРАНИЦА] Загружено {len(rules)} правил классификации из {pagination.total}")
+        
+        return render_template(
+            'classification_rules.html',
+            rules=rules,
+            page=page,
+            total_pages=total_pages
+        )
+    
     @app.route('/api/transfer_rules', methods=['POST'])
     def create_transfer_rule():
         try:
@@ -1603,6 +1625,27 @@ def init_routes(app):
             for field in required_fields:
                 if field not in data or not data[field]:
                     return jsonify({'success': False, 'error': f'Поле {field} обязательно'}), 400
+            
+            # Если создается правило не с типом ALWAYS_TRUE, проверяем, что его приоритет не конфликтует с ALWAYS_TRUE
+            if data['condition_type'] != 'ALWAYS_TRUE':
+                # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+                min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                    TransferRule.condition_type == 'ALWAYS_TRUE'
+                ).scalar()
+                
+                # Если есть правила ALWAYS_TRUE и приоритет нового правила больше или равен минимальному приоритету ALWAYS_TRUE,
+                # то сдвигаем все правила ALWAYS_TRUE и с большим приоритетом на +10
+                if min_always_true_priority and int(data['priority']) >= min_always_true_priority:
+                    # Получаем все правила с приоритетом >= min_always_true_priority
+                    rules_to_update = TransferRule.query.filter(
+                        TransferRule.priority >= min_always_true_priority
+                    ).all()
+                    
+                    # Увеличиваем приоритет каждого правила на 10
+                    for rule in rules_to_update:
+                        rule.priority += 10
+                    
+                    db.session.commit()
             
             # Создаем новое правило
             rule = TransferRule(
@@ -1655,11 +1698,37 @@ def init_routes(app):
             
             data = request.json
             
+            # Проверяем, изменился ли приоритет и не является ли правило типа ALWAYS_TRUE
+            old_priority = rule.priority
+            new_priority = data.get('priority', old_priority)
+            new_condition_type = data.get('condition_type', rule.condition_type)
+            
+            # Если изменился приоритет и новый тип условия не ALWAYS_TRUE
+            if int(new_priority) != old_priority and new_condition_type != 'ALWAYS_TRUE':
+                # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+                min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                    TransferRule.condition_type == 'ALWAYS_TRUE'
+                ).scalar()
+                
+                # Если есть правила ALWAYS_TRUE и новый приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
+                # то сдвигаем все правила ALWAYS_TRUE и с большим приоритетом на +10
+                if min_always_true_priority and int(new_priority) >= min_always_true_priority:
+                    # Получаем все правила с приоритетом >= min_always_true_priority
+                    rules_to_update = TransferRule.query.filter(
+                        TransferRule.priority >= min_always_true_priority
+                    ).all()
+                    
+                    # Увеличиваем приоритет каждого правила на 10
+                    for r in rules_to_update:
+                        r.priority += 10
+                    
+                    db.session.commit()
+            
             # Обновляем поля правила
-            rule.priority = data.get('priority', rule.priority)
+            rule.priority = new_priority
             rule.category_name = data.get('category_name', rule.category_name)
             rule.transfer_action = data.get('transfer_action', rule.transfer_action)
-            rule.condition_type = data.get('condition_type', rule.condition_type)
+            rule.condition_type = new_condition_type
             rule.condition_field = data.get('condition_field', rule.condition_field)
             rule.condition_value = data.get('condition_value', rule.condition_value)
             rule.comment = data.get('comment', rule.comment)
@@ -1862,3 +1931,263 @@ def init_routes(app):
             db.session.rollback()
             logging.error(f"[API] Ошибка при применении правил: {str(e)}")
             return jsonify({'success': False, 'error': str(e)}), 500 
+
+    @app.route('/api/classification_rules', methods=['POST'])
+    def create_classification_rule():
+        """
+        Создает новое правило классификации на основе переданных данных.
+        """
+        try:
+            data = request.json
+            logging.info(f"[API] Получены данные для создания правила: {data}")
+            
+            # Проверяем обязательные поля
+            required_fields = ['pattern', 'field', 'priznak_value', 'condition_type', 'category_name']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    logging.error(f"[API] Отсутствует обязательное поле: {field}")
+                    return jsonify({'success': False, 'error': f'Поле {field} обязательно'}), 400
+            
+            # Если приоритет не указан, получаем максимальный приоритет из существующих правил
+            if 'priority' not in data or not data['priority']:
+                # Получаем максимальный приоритет из существующих правил
+                max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+                
+                # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+                min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                    TransferRule.condition_type == 'ALWAYS_TRUE'
+                ).scalar()
+                
+                # Вычисляем следующий приоритет
+                priority = max_priority + 10
+                
+                # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
+                # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
+                if min_always_true_priority and priority >= min_always_true_priority:
+                    priority = min_always_true_priority - 10
+                
+                logging.info(f"[API] Установлен приоритет: {priority}")
+            else:
+                priority = data['priority']
+            
+            # Если создается правило не с типом ALWAYS_TRUE, проверяем, что его приоритет не конфликтует с ALWAYS_TRUE
+            if data['condition_type'] != 'ALWAYS_TRUE':
+                # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+                min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                    TransferRule.condition_type == 'ALWAYS_TRUE'
+                ).scalar()
+                
+                # Если есть правила ALWAYS_TRUE и приоритет нового правила больше или равен минимальному приоритету ALWAYS_TRUE,
+                # то сдвигаем все правила ALWAYS_TRUE и с большим приоритетом на +10
+                if min_always_true_priority and int(priority) >= min_always_true_priority:
+                    # Получаем все правила с приоритетом >= min_always_true_priority
+                    rules_to_update = TransferRule.query.filter(
+                        TransferRule.priority >= min_always_true_priority
+                    ).all()
+                    
+                    # Увеличиваем приоритет каждого правила на 10
+                    for rule in rules_to_update:
+                        rule.priority += 10
+                    
+                    db.session.commit()
+            
+            # Создаем новое правило
+            rule = TransferRule(
+                priority=priority,
+                category_name=data['category_name'],
+                transfer_action=data.get('transfer_action', 'Переносим'),
+                condition_type=data['condition_type'],
+                condition_field=data['field'],
+                condition_value=data['pattern'],
+                comment=data.get('comment', ''),
+                confidence_threshold=data.get('confidence_threshold', 0.8),
+                source_batch_id=data.get('source_batch_id'),
+                priznak_value=data['priznak_value']
+            )
+            
+            logging.info(f"[API] Создаем правило: {rule.condition_value}, {rule.condition_field}, {rule.priznak_value}")
+            db.session.add(rule)
+            db.session.commit()
+            logging.info(f"[API] Правило успешно создано с ID: {rule.id}")
+            
+            return jsonify({
+                'success': True, 
+                'rule_id': rule.id,
+                'message': 'Правило классификации успешно создано'
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при создании правила классификации: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+            
+    @app.route('/api/classification_rules/<int:rule_id>', methods=['GET'])
+    def get_classification_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            rule_data = {
+                'id': rule.id,
+                'priority': rule.priority,
+                'field': rule.condition_field,
+                'pattern': rule.condition_value,
+                'priznak_value': rule.priznak_value,
+                'confidence_threshold': rule.confidence_threshold,
+                'category_name': rule.category_name,
+                'condition_type': rule.condition_type,
+                'transfer_action': rule.transfer_action,
+                'comment': rule.comment
+            }
+            
+            return jsonify({'success': True, 'rule': rule_data})
+        except Exception as e:
+            app.logger.error(f"Ошибка при получении правила классификации: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+            
+    @app.route('/api/classification_rules/<int:rule_id>', methods=['PUT'])
+    def update_classification_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            data = request.get_json()
+            
+            # Проверяем, изменился ли приоритет и не является ли правило типа ALWAYS_TRUE
+            old_priority = rule.priority
+            new_priority = data.get('priority', old_priority)
+            new_condition_type = data.get('condition_type', rule.condition_type)
+            
+            # Если изменился приоритет и новый тип условия не ALWAYS_TRUE
+            if int(new_priority) != old_priority and new_condition_type != 'ALWAYS_TRUE':
+                # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+                min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                    TransferRule.condition_type == 'ALWAYS_TRUE'
+                ).scalar()
+                
+                # Если есть правила ALWAYS_TRUE и новый приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
+                # то сдвигаем все правила ALWAYS_TRUE и с большим приоритетом на +10
+                if min_always_true_priority and int(new_priority) >= min_always_true_priority:
+                    # Получаем все правила с приоритетом >= min_always_true_priority
+                    rules_to_update = TransferRule.query.filter(
+                        TransferRule.priority >= min_always_true_priority
+                    ).all()
+                    
+                    # Увеличиваем приоритет каждого правила на 10
+                    for r in rules_to_update:
+                        r.priority += 10
+                    
+                    db.session.commit()
+            
+            # Обновляем поля правила
+            rule.priority = new_priority
+            rule.condition_field = data.get('field', rule.condition_field)
+            rule.condition_value = data.get('pattern', rule.condition_value)
+            rule.priznak_value = data.get('priznak_value', rule.priznak_value)
+            rule.confidence_threshold = data.get('confidence_threshold', rule.confidence_threshold)
+            rule.category_name = data.get('category_name', rule.category_name)
+            rule.condition_type = new_condition_type
+            rule.transfer_action = data.get('transfer_action', rule.transfer_action)
+            rule.comment = data.get('comment', rule.comment)
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Правило классификации успешно обновлено',
+                'rule_id': rule.id
+            })
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Ошибка при обновлении правила классификации: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+            
+    @app.route('/api/classification_rules/<int:rule_id>', methods=['DELETE'])
+    def delete_classification_rule(rule_id):
+        try:
+            rule = TransferRule.query.get(rule_id)
+            if not rule:
+                return jsonify({'success': False, 'error': 'Правило не найдено'}), 404
+            
+            db.session.delete(rule)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True, 
+                'message': 'Правило классификации успешно удалено',
+                'rule_id': rule.id
+            })
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Ошибка при удалении правила классификации: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+            
+    @app.route('/api/get_max_priority', methods=['GET'])
+    def get_max_priority():
+        """
+        Возвращает максимальный приоритет из существующих правил классификации.
+        Учитывает правила с типом ALWAYS_TRUE, чтобы новые правила имели приоритет ниже них.
+        """
+        try:
+            # Получаем максимальный приоритет из существующих правил
+            max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+            
+            # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+            min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                TransferRule.condition_type == 'ALWAYS_TRUE'
+            ).scalar()
+            
+            # Вычисляем следующий приоритет
+            next_priority = max_priority + 10
+            
+            # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
+            # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
+            if min_always_true_priority and next_priority >= min_always_true_priority:
+                next_priority = min_always_true_priority - 10
+            
+            return jsonify({
+                'success': True,
+                'max_priority': max_priority,
+                'next_priority': next_priority,
+                'min_always_true_priority': min_always_true_priority
+            })
+            
+        except Exception as e:
+            logging.error(f"Ошибка при получении максимального приоритета: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+            
+    @app.route('/api/get_max_transfer_rule_priority', methods=['GET'])
+    def get_max_transfer_rule_priority():
+        """
+        Возвращает максимальный приоритет из существующих правил переноса.
+        Учитывает правила с типом ALWAYS_TRUE, чтобы новые правила имели приоритет ниже них.
+        """
+        try:
+            # Получаем максимальный приоритет из существующих правил
+            max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+            
+            # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
+            min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
+                TransferRule.condition_type == 'ALWAYS_TRUE'
+            ).scalar()
+            
+            # Вычисляем следующий приоритет
+            next_priority = max_priority + 10
+            
+            # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
+            # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
+            if min_always_true_priority and next_priority >= min_always_true_priority:
+                next_priority = min_always_true_priority - 10
+            
+            return jsonify({
+                'success': True,
+                'max_priority': max_priority,
+                'next_priority': next_priority,
+                'min_always_true_priority': min_always_true_priority
+            })
+            
+        except Exception as e:
+            logging.error(f"Ошибка при получении максимального приоритета правил переноса: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500

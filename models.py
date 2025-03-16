@@ -45,6 +45,10 @@ class ClassificationRule(db.Model):
     created_date = db.Column(db.DateTime, default=datetime.utcnow)
     confidence_threshold = db.Column(db.Float, default=0.8)
     source_batch_id = db.Column(db.String(36), nullable=True)
+    category_name = db.Column(db.String(255), nullable=True)
+    condition_type = db.Column(db.String(50), nullable=True)
+    transfer_action = db.Column(db.String(255), nullable=True)
+    comment = db.Column(db.Text, nullable=True)
 
 class Discrepancy(db.Model):
     __tablename__ = 'discrepancies'
@@ -135,6 +139,11 @@ class TransferRule(db.Model):
     comment = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Добавляем поля для правил классификации
+    confidence_threshold = db.Column(db.Float, default=0.8)
+    source_batch_id = db.Column(db.String(36), nullable=True)
+    priznak_value = db.Column(db.String(50), nullable=True)
     
     def __repr__(self):
         return f'<TransferRule {self.id}: {self.category_name} - {self.transfer_action}>'
