@@ -1625,29 +1625,7 @@ def init_routes(app):
             page=page,
             total_pages=total_pages
         )
-    
-    @app.route('/classification_rules')
-    def classification_rules():
-        page = request.args.get('page', 1, type=int)
-        per_page = 50  # Количество правил на странице
-        
-        # Получаем правила с пагинацией
-        pagination = TransferRule.query.filter(TransferRule.priznak_value.isnot(None)).order_by(TransferRule.priority).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
-        
-        rules = pagination.items
-        total_pages = pagination.pages
-        
-        logging.info(f"[СТРАНИЦА] Загружено {len(rules)} правил классификации из {pagination.total}")
-        
-        return render_template(
-            'classification_rules.html',
-            rules=rules,
-            page=page,
-            total_pages=total_pages
-        )
-    
+
     @app.route('/api/transfer_rules', methods=['POST'])
     def create_transfer_rule():
         try:
@@ -1965,8 +1943,7 @@ def init_routes(app):
             logging.error(f"[API] Ошибка при применении правил: {str(e)}")
             return jsonify({'success': False, 'error': str(e)}), 500 
 
-    @app.route('/api/classification_rules', methods=['POST'])
-    def create_classification_rule():
+
         """
         Создает новое правило классификации на основе переданных данных.
         """
@@ -2060,8 +2037,7 @@ def init_routes(app):
             logging.error(f"Ошибка при создании правила классификации: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
             
-    @app.route('/api/classification_rules/<int:rule_id>', methods=['GET'])
-    def get_classification_rule(rule_id):
+
         try:
             rule = TransferRule.query.get(rule_id)
             if not rule:
@@ -2085,8 +2061,7 @@ def init_routes(app):
             app.logger.error(f"Ошибка при получении правила классификации: {str(e)}")
             return jsonify({'success': False, 'error': str(e)}), 500
             
-    @app.route('/api/classification_rules/<int:rule_id>', methods=['PUT'])
-    def update_classification_rule(rule_id):
+
         try:
             rule = TransferRule.query.get(rule_id)
             if not rule:
@@ -2143,8 +2118,6 @@ def init_routes(app):
             app.logger.error(f"Ошибка при обновлении правила классификации: {str(e)}")
             return jsonify({'success': False, 'error': str(e)}), 500
             
-    @app.route('/api/classification_rules/<int:rule_id>', methods=['DELETE'])
-    def delete_classification_rule(rule_id):
         try:
             rule = TransferRule.query.get(rule_id)
             if not rule:
