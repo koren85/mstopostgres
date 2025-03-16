@@ -12,6 +12,8 @@ from sqlalchemy import func, case
 from werkzeug.utils import secure_filename
 import os
 from io import BytesIO
+import xlsxwriter
+import io
 
 def init_routes(app):
     @app.route('/')
@@ -2240,3 +2242,107 @@ def init_routes(app):
         except Exception as e:
             logging.error(f"Ошибка при получении максимального приоритета правил переноса: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/export_analysis/<batch_id>', methods=['GET'])
+    def export_analysis(batch_id):
+        try:
+            # Получаем данные анализа
+            analysis_data = AnalysisData.query.filter_by(batch_id=batch_id).all()
+            analysis_results = AnalysisResult.query.filter_by(batch_id=batch_id).all()
+            
+            if not analysis_data or not analysis_results:
+                return jsonify({"success": False, "error": "Данные не найдены"}), 404
+
+            # Создаем словарь для быстрого доступа к результатам анализа по имени класса
+            results_dict = {r.mssql_sxclass_name: r.priznak for r in analysis_results}
+
+            # Создаем файл Excel в памяти
+            output = io.BytesIO()
+            workbook = xlsxwriter.Workbook(output)
+            worksheet = workbook.add_worksheet()
+
+            # Заголовки в точном соответствии с требуемым порядком
+            headers = [
+                ('a_ouid', 'A_OUID'),
+                ('mssql_sxclass_description', 'MSSQL_SXCLASS_DESCRIPTION'),
+                ('mssql_sxclass_name', 'MSSQL_SXCLASS_NAME'),
+                ('mssql_sxclass_map', 'MSSQL_SXCLASS_MAP'),
+                ('priznak', 'priznak'),
+                ('system_class', 'Системный класс'),
+                ('is_link_table', 'Используется как таблица связи'),
+                ('parent_class', 'Родительский класс'),
+                ('child_classes', 'Дочерние классы'),
+                ('child_count', 'Количество дочерних классов'),
+                ('created_date', 'Дата создания'),
+                ('created_by', 'Создал'),
+                ('modified_date', 'Дата изменения'),
+                ('modified_by', 'Изменил'),
+                ('folder_paths', 'Пути папок в консоли'),
+                ('attribute_count', 'Наличие объектов'),
+                ('object_count', 'Количество объектов'),
+                ('last_object_created', 'Дата создания последнего объекта'),
+                ('last_object_modified', 'Дата последнего изменения'),
+                ('category', 'Категория (итог)'),
+                ('migration_flag', 'Признак миграции (итог)'),
+                ('rule_info', 'Rule Info (какое правило сработало)')
+            ]
+
+            # Форматирование
+            header_format = workbook.add_format({
+                'bold': True,
+                'align': 'center',
+                'valign': 'vcenter',
+                'bg_color': '#D3D3D3'
+            })
+
+            # Записываем заголовки на второй строке (индекс 1)
+            for col, (field, header) in enumerate(headers):
+                worksheet.write(1, col, header, header_format)
+                worksheet.set_column(col, col, 20)
+
+            # Записываем данные начиная с третьей строки (индекс 2)
+            for row_idx, record in enumerate(analysis_data, start=2):
+                data = [
+                    record.a_ouid,
+                    record.mssql_sxclass_description,
+                    record.mssql_sxclass_name,
+                    record.mssql_sxclass_map,
+                    results_dict.get(record.mssql_sxclass_name, ''),  # Получаем priznak из результатов анализа
+                    record.system_class,
+                    record.is_link_table,
+                    record.parent_class,
+                    record.child_classes,
+                    record.child_count,
+                    record.created_date,
+                    record.created_by,
+                    record.modified_date,
+                    record.modified_by,
+                    record.folder_paths,
+                    record.attribute_count,
+                    record.object_count,
+                    record.last_object_created,
+                    record.last_object_modified,
+                    record.category,
+                    record.migration_flag,
+                    record.rule_info
+                ]
+
+                for col, value in enumerate(data):
+                    worksheet.write(row_idx, col, str(value) if value is not None else '')
+
+            workbook.close()
+            output.seek(0)
+
+            # Получаем имя файла из первой записи
+            filename = f"{analysis_data[0].file_name}_проанализировано.xlsx" if analysis_data else "analysis_export.xlsx"
+            
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            logging.error(f"Ошибка при экспорте в Excel: {str(e)}", exc_info=True)
+            return jsonify({"success": False, "error": str(e)}), 500

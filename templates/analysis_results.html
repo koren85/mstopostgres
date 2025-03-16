@@ -438,7 +438,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const exportBtn = document.getElementById('exportBtn');
     if (exportBtn) {
         exportBtn.addEventListener('click', function() {
-            window.location.href = `/api/export_analysis/{{ batch_id }}`;
+            window.location.href = `/export_analysis/{{ batch_id }}`;
         });
     }
 
