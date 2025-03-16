@@ -1034,28 +1034,35 @@ def init_routes(app):
             
             # Получаем описания классов из таблицы analysis_data
             class_descriptions = {}
+            class_tables = {}  # Новый словарь для хранения таблиц
             for result in pagination.items:
                 if result.mssql_sxclass_name not in class_descriptions:
-                    # Ищем описание в таблице analysis_data
-                    description_data = db.session.query(AnalysisData.mssql_sxclass_description).filter_by(
+                    # Ищем описание и таблицу в таблице analysis_data
+                    class_data = db.session.query(
+                        AnalysisData.mssql_sxclass_description,
+                        AnalysisData.mssql_sxclass_map
+                    ).filter_by(
                         batch_id=batch_id,
                         mssql_sxclass_name=result.mssql_sxclass_name
                     ).first()
-                    class_descriptions[result.mssql_sxclass_name] = description_data[0] if description_data else ''
+                    
+                    class_descriptions[result.mssql_sxclass_name] = class_data[0] if class_data else ''
+                    class_tables[result.mssql_sxclass_name] = class_data[1] if class_data else ''
             
             return render_template('analysis_results.html',
                                  results=pagination.items,
                                  pagination=pagination,
                                  status_counts=status_counts,
                                  batch_id=batch_id,
-                                 current_status=status_filter,
                                  current_search=search,
+                                 current_status=status_filter,
                                  current_discrepancy=current_discrepancy,
-                                 current_card_filter=card_filter,  # Передаем текущий фильтр по карточке
-                                 discrepancy_stats=discrepancy_stats,
+                                 current_card_filter=card_filter,
+                                 class_descriptions=class_descriptions,
+                                 class_tables=class_tables,  # Передаем словарь с таблицами в шаблон
                                  priznaks=priznaks,
                                  batch_sources=batch_sources,
-                                 class_descriptions=class_descriptions)  # Передаем описания классов
+                                 discrepancy_stats=discrepancy_stats)
             
         except Exception as e:
             logging.error(f"Ошибка при отображении результатов анализа: {str(e)}", exc_info=True)

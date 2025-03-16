@@ -171,6 +171,7 @@
                             </th>
                             <th>Описание</th>
                             <th>Имя класса</th>
+                            <th>Таблица</th>
                             <th>Признак</th>
                             <th>Уверенность</th>
                             <th>Статус</th>
@@ -189,6 +190,7 @@
                             </td>
                             <td>{{ class_descriptions[result.mssql_sxclass_name] }}</td>
                             <td>{{ result.mssql_sxclass_name }}</td>
+                            <td>{{ class_tables[result.mssql_sxclass_name] }}</td>
                             <td>
                                 <select class="form-select priznak-select" data-id="{{ result.id }}">
                                     <option value="">Выберите значение</option>
