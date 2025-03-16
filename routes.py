@@ -1979,23 +1979,29 @@ def init_routes(app):
                     logging.error(f"[API] Отсутствует обязательное поле: {field}")
                     return jsonify({'success': False, 'error': f'Поле {field} обязательно'}), 400
             
-            # Если приоритет не указан, получаем максимальный приоритет из существующих правил
+            # Если приоритет не указан, вычисляем его
             if 'priority' not in data or not data['priority']:
-                # Получаем максимальный приоритет из существующих правил
-                max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
-                
                 # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
                 min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
                     TransferRule.condition_type == 'ALWAYS_TRUE'
                 ).scalar()
                 
-                # Вычисляем следующий приоритет
-                priority = max_priority + 10
-                
-                # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
-                # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
-                if min_always_true_priority and priority >= min_always_true_priority:
-                    priority = min_always_true_priority - 10
+                if min_always_true_priority:
+                    # Находим максимальный приоритет среди правил с приоритетом меньше, чем у ALWAYS_TRUE
+                    max_priority_before_always_true = db.session.query(func.max(TransferRule.priority)).filter(
+                        TransferRule.priority < min_always_true_priority
+                    ).scalar() or 0
+                    
+                    # Следующий приоритет = максимальный приоритет до ALWAYS_TRUE + 10
+                    priority = max_priority_before_always_true + 10
+                    
+                    # Проверяем, что новый приоритет не превышает минимальный приоритет ALWAYS_TRUE
+                    if priority >= min_always_true_priority:
+                        priority = min_always_true_priority - 10
+                else:
+                    # Если нет правил ALWAYS_TRUE, просто берем максимальный приоритет + 10
+                    max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+                    priority = max_priority + 10
                 
                 logging.info(f"[API] Установлен приоритет: {priority}")
             else:
@@ -2162,25 +2168,31 @@ def init_routes(app):
         Учитывает правила с типом ALWAYS_TRUE, чтобы новые правила имели приоритет ниже них.
         """
         try:
-            # Получаем максимальный приоритет из существующих правил
-            max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
-            
             # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
             min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
                 TransferRule.condition_type == 'ALWAYS_TRUE'
             ).scalar()
             
-            # Вычисляем следующий приоритет
-            next_priority = max_priority + 10
-            
-            # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
-            # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
-            if min_always_true_priority and next_priority >= min_always_true_priority:
-                next_priority = min_always_true_priority - 10
+            if min_always_true_priority:
+                # Находим максимальный приоритет среди правил с приоритетом меньше, чем у ALWAYS_TRUE
+                max_priority_before_always_true = db.session.query(func.max(TransferRule.priority)).filter(
+                    TransferRule.priority < min_always_true_priority
+                ).scalar() or 0
+                
+                # Следующий приоритет = максимальный приоритет до ALWAYS_TRUE + 10
+                next_priority = max_priority_before_always_true + 10
+                
+                # Проверяем, что новый приоритет не превышает минимальный приоритет ALWAYS_TRUE
+                if next_priority >= min_always_true_priority:
+                    next_priority = min_always_true_priority - 10
+            else:
+                # Если нет правил ALWAYS_TRUE, просто берем максимальный приоритет + 10
+                max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+                next_priority = max_priority + 10
             
             return jsonify({
                 'success': True,
-                'max_priority': max_priority,
+                'max_priority': max_priority_before_always_true if min_always_true_priority else (db.session.query(func.max(TransferRule.priority)).scalar() or 0),
                 'next_priority': next_priority,
                 'min_always_true_priority': min_always_true_priority
             })
@@ -2196,25 +2208,31 @@ def init_routes(app):
         Учитывает правила с типом ALWAYS_TRUE, чтобы новые правила имели приоритет ниже них.
         """
         try:
-            # Получаем максимальный приоритет из существующих правил
-            max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
-            
             # Получаем минимальный приоритет правил с типом ALWAYS_TRUE
             min_always_true_priority = db.session.query(func.min(TransferRule.priority)).filter(
                 TransferRule.condition_type == 'ALWAYS_TRUE'
             ).scalar()
             
-            # Вычисляем следующий приоритет
-            next_priority = max_priority + 10
-            
-            # Если есть правила ALWAYS_TRUE и следующий приоритет больше или равен минимальному приоритету ALWAYS_TRUE,
-            # то устанавливаем приоритет на 10 меньше минимального приоритета ALWAYS_TRUE
-            if min_always_true_priority and next_priority >= min_always_true_priority:
-                next_priority = min_always_true_priority - 10
+            if min_always_true_priority:
+                # Находим максимальный приоритет среди правил с приоритетом меньше, чем у ALWAYS_TRUE
+                max_priority_before_always_true = db.session.query(func.max(TransferRule.priority)).filter(
+                    TransferRule.priority < min_always_true_priority
+                ).scalar() or 0
+                
+                # Следующий приоритет = максимальный приоритет до ALWAYS_TRUE + 10
+                next_priority = max_priority_before_always_true + 10
+                
+                # Проверяем, что новый приоритет не превышает минимальный приоритет ALWAYS_TRUE
+                if next_priority >= min_always_true_priority:
+                    next_priority = min_always_true_priority - 10
+            else:
+                # Если нет правил ALWAYS_TRUE, просто берем максимальный приоритет + 10
+                max_priority = db.session.query(func.max(TransferRule.priority)).scalar() or 0
+                next_priority = max_priority + 10
             
             return jsonify({
                 'success': True,
-                'max_priority': max_priority,
+                'max_priority': max_priority_before_always_true if min_always_true_priority else (db.session.query(func.max(TransferRule.priority)).scalar() or 0),
                 'next_priority': next_priority,
                 'min_always_true_priority': min_always_true_priority
             })
