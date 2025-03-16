@@ -538,6 +538,8 @@ def init_routes(app):
             
             # Добавляем записи в базу данных
             records_added = 0
+            failed_records = []  # Список для хранения записей, которые не удалось загрузить
+            
             for index, row in df.iterrows():
                 try:
                     # Логируем данные каждой строки
@@ -564,21 +566,50 @@ def init_routes(app):
                     app.logger.info(f"Запись успешно добавлена: {analysis_data.mssql_sxclass_name}")
                 except Exception as row_error:
                     app.logger.error(f"Ошибка при обработке строки {index + 1}: {str(row_error)}")
+                    # Сохраняем информацию о неудачной записи
+                    failed_record = {
+                        'index': index + 1,
+                        'error': str(row_error),
+                        'data': {}
+                    }
+                    # Добавляем основные поля для идентификации записи
+                    for field in ['MSSQL_SXCLASS_DESCRIPTION', 'MSSQL_SXCLASS_NAME', 'MSSQL_SXCLASS_MAP']:
+                        if field in row:
+                            failed_record['data'][field] = str(row[field]) if pd.notna(row[field]) else ''
+                    failed_records.append(failed_record)
                     continue
             
             db.session.commit()
             app.logger.info(f"=== Загрузка завершена ===")
             app.logger.info(f"Всего добавлено записей: {records_added}")
+            app.logger.info(f"Не удалось загрузить записей: {len(failed_records)}")
+            
+            # Проверяем, все ли записи были загружены
+            if len(df) != records_added:
+                app.logger.warning(f"Не все записи были загружены! В Excel: {len(df)}, загружено: {records_added}")
+                for failed in failed_records:
+                    app.logger.warning(f"Не загружена строка {failed['index']}: {failed['data']}, ошибка: {failed['error']}")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Файл загружен, но не все записи были обработаны. Загружено {records_added} из {len(df)} записей.',
+                    'batch_id': batch_id,
+                    'records_added': records_added,
+                    'total_records': len(df),
+                    'failed_records': failed_records,
+                    'warning': True
+                })
             
             return jsonify({
                 'success': True,
-                'message': f'Файл успешно загружен. Создан батч #{batch_id}. Добавлено записей: {records_added}',
-                'batch_id': batch_id
+                'message': f'Файл успешно загружен. Добавлено {records_added} записей.',
+                'batch_id': batch_id,
+                'records_added': records_added,
+                'total_records': len(df)
             })
             
         except Exception as e:
-            db.session.rollback()
-            app.logger.error(f'Ошибка при загрузке файла: {str(e)}', exc_info=True)
+            app.logger.error(f"Ошибка при загрузке файла: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/analyze_item/<int:item_id>', methods=['POST'])
