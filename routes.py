@@ -2346,3 +2346,194 @@ def init_routes(app):
         except Exception as e:
             logging.error(f"Ошибка при экспорте в Excel: {str(e)}", exc_info=True)
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route('/api/get_available_sources', methods=['GET'])
+    def get_available_sources():
+        """
+        Получает список доступных источников для копирования признаков
+        """
+        try:
+            current_batch_id = request.args.get('current_batch_id')
+            if not current_batch_id:
+                return jsonify({'success': False, 'error': 'Не указан текущий batch_id'}), 400
+                
+            # Получаем исторические источники
+            historical_sources = db.session.query(
+                MigrationClass.batch_id,
+                MigrationClass.source_system,
+                MigrationClass.file_name,
+                func.count(MigrationClass.id).label('records_count'),
+                func.min(MigrationClass.upload_date).label('upload_date')
+            ).group_by(
+                MigrationClass.batch_id,
+                MigrationClass.source_system,
+                MigrationClass.file_name
+            ).all()
+            
+            # Получаем источники анализа (кроме текущего)
+            analysis_sources = db.session.query(
+                AnalysisData.batch_id,
+                AnalysisData.source_system,
+                AnalysisData.file_name,
+                func.count(AnalysisData.id).label('records_count'),
+                func.min(AnalysisData.upload_date).label('upload_date')
+            ).filter(
+                AnalysisData.batch_id != current_batch_id
+            ).group_by(
+                AnalysisData.batch_id,
+                AnalysisData.source_system,
+                AnalysisData.file_name
+            ).all()
+            
+            # Форматируем результат
+            sources = {
+                'historical': [{
+                    'batch_id': src.batch_id,
+                    'source_system': src.source_system,
+                    'file_name': src.file_name,
+                    'records_count': src.records_count,
+                    'upload_date': src.upload_date.isoformat() if src.upload_date else None,
+                    'type': 'historical'
+                } for src in historical_sources],
+                'analysis': [{
+                    'batch_id': src.batch_id,
+                    'source_system': src.source_system,
+                    'file_name': src.file_name,
+                    'records_count': src.records_count,
+                    'upload_date': src.upload_date.isoformat() if src.upload_date else None,
+                    'type': 'analysis'
+                } for src in analysis_sources]
+            }
+            
+            return jsonify({'success': True, 'sources': sources})
+            
+        except Exception as e:
+            logging.error(f"Ошибка при получении списка источников: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/api/copy_priznaks_from_source', methods=['POST'])
+    def copy_priznaks_from_source():
+        """
+        Копирует признаки из выбранного источника с учетом фильтров
+        """
+        try:
+            data = request.json
+            current_batch_id = data.get('current_batch_id')
+            source_batch_id = data.get('source_batch_id')
+            source_type = data.get('source_type')  # 'historical' или 'analysis'
+            filters = data.get('filters', {})  # текущие примененные фильтры
+            
+            if not all([current_batch_id, source_batch_id, source_type]):
+                return jsonify({'success': False, 'error': 'Не все параметры указаны'}), 400
+                
+            # Получаем записи из текущего батча с учетом фильтров
+            query = AnalysisResult.query.filter_by(batch_id=current_batch_id)
+            
+            # Применяем фильтры
+            status_filter = filters.get('status')
+            discrepancy_filter = filters.get('discrepancy_filter')
+            card_filter = filters.get('card_filter')
+            search = filters.get('search')
+            
+            if status_filter:
+                if status_filter == 'no_matches':
+                    query = query.filter(AnalysisResult.status == 'pending', 
+                                      AnalysisResult.discrepancies.is_(None))
+                elif status_filter == 'discrepancies':
+                    query = query.filter(AnalysisResult.status == 'pending', 
+                                      AnalysisResult.discrepancies.isnot(None))
+                else:
+                    query = query.filter(AnalysisResult.status == status_filter)
+            
+            if search:
+                query = query.filter(AnalysisResult.mssql_sxclass_name.ilike(f'%{search}%'))
+            
+            # Получаем все результаты для дальнейшей фильтрации
+            current_results = query.all()
+            filtered_results = current_results
+            
+            # Применяем фильтр по расхождениям
+            if discrepancy_filter:
+                filtered_results = [
+                    result for result in filtered_results
+                    if result.discrepancies and str(result.discrepancies) == discrepancy_filter
+                ]
+            
+            # Применяем фильтр по карточке
+            if card_filter:
+                try:
+                    card_data = json.loads(card_filter)
+                    sources = card_data.get('sources', [])
+                    priznaks = card_data.get('priznaks', [])
+                    
+                    filtered_results = [
+                        result for result in filtered_results
+                        if result.discrepancies and any(
+                            db.session.query(MigrationClass.source_system).filter_by(
+                                batch_id=batch_id
+                            ).first()[0] in sources and priznak in priznaks
+                            for batch_id, priznak in result.discrepancies.items()
+                        )
+                    ]
+                except Exception as e:
+                    logging.error(f"Ошибка при применении фильтра по карточке: {str(e)}")
+            
+            # Получаем признаки из источника
+            if source_type == 'historical':
+                source_records = db.session.query(
+                    MigrationClass.mssql_sxclass_name,
+                    MigrationClass.priznak
+                ).filter(
+                    MigrationClass.batch_id == source_batch_id,
+                    MigrationClass.priznak.isnot(None)
+                ).all()
+            else:
+                source_records = db.session.query(
+                    AnalysisData.mssql_sxclass_name,
+                    AnalysisData.priznak
+                ).filter(
+                    AnalysisData.batch_id == source_batch_id,
+                    AnalysisData.priznak.isnot(None)
+                ).all()
+            
+            # Создаем словарь признаков из источника
+            source_priznaks = {r.mssql_sxclass_name: r.priznak for r in source_records}
+            
+            # Обновляем признаки в текущем батче
+            updated_count = 0
+            not_found_count = 0
+            for result in filtered_results:
+                if result.mssql_sxclass_name in source_priznaks:
+                    # Обновляем признак в AnalysisResult
+                    result.priznak = source_priznaks[result.mssql_sxclass_name]
+                    result.status = 'analyzed'
+                    result.analyzed_by = f'copied_from_{source_type}'
+                    result.confidence_score = 1.0
+                    
+                    # Обновляем признак в AnalysisData
+                    analysis_data = AnalysisData.query.filter_by(
+                        batch_id=current_batch_id,
+                        mssql_sxclass_name=result.mssql_sxclass_name
+                    ).first()
+                    
+                    if analysis_data:
+                        analysis_data.priznak = source_priznaks[result.mssql_sxclass_name]
+                        analysis_data.analysis_state = 'analyzed'
+                    
+                    updated_count += 1
+                else:
+                    not_found_count += 1
+            
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Обновлено {updated_count} записей. Не найдено соответствий для {not_found_count} записей.',
+                'updated_count': updated_count,
+                'not_found_count': not_found_count
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при копировании признаков: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500

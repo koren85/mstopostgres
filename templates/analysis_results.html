@@ -162,6 +162,9 @@
                     <button id="exportBtn" class="btn btn-secondary me-2">
                         <i class="bi bi-file-excel"></i> Экспорт в Excel
                     </button>
+                    <button id="copyFromSourceBtn" class="btn btn-secondary me-2">
+                        <i class="bi bi-clipboard-data"></i> Установить как в источнике
+                    </button>
                     <button id="applySelected" class="btn btn-primary me-2" disabled>
                         Применить к выбранным
                     </button>
@@ -975,55 +978,77 @@ document.addEventListener('DOMContentLoaded', function() {
                                         
                                         <div class="alert alert-info">
                                             <p>${formattedMessage}</p>
-                                        </div>
-                                        
-                                        ${data.statistics.unprocessed > 0 ? `
-                                        <div class="mt-4">
-                                            <h6>Причины необработки:</h6>
-                                            <ul>
-                                                ${data.statistics.unprocessed_stats.no_matching_rule > 0 ? 
-                                                `<li>Нет подходящего правила: ${data.statistics.unprocessed_stats.no_matching_rule} записей</li>` : ''}
-                                                
-                                                ${Object.keys(data.statistics.unprocessed_stats.empty_field_values).length > 0 ? 
-                                                `<li>Пустые значения полей:
-                                                    <ul>
-                                                        ${Object.entries(data.statistics.unprocessed_stats.empty_field_values).map(([field, count]) => 
-                                                            `<li>${field}: ${count} записей</li>`
-                                                        ).join('')}
-                                                    </ul>
-                                                </li>` : ''}
-                                            </ul>
-                                        </div>
-                                        
-                                        ${data.statistics.unprocessed_examples && data.statistics.unprocessed_examples.length > 0 ? `
-                                        <div class="mt-4">
-                                            <h6>Примеры необработанных записей:</h6>
-                                            <div class="table-responsive">
-                                                <table class="table table-sm table-bordered">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>#</th>
-                                                            <th>Имя класса</th>
-                                                            <th>Причина</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        ${data.statistics.unprocessed_examples.map((example, index) => `
-                                                            <tr>
-                                                                <td>${index + 1}</td>
-                                                                <td>${example.class_name}</td>
-                                                                <td>${example.reason}</td>
-                                                            </tr>
-                                                        `).join('')}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            ${data.statistics.unprocessed > data.statistics.unprocessed_examples.length ? 
-                                            `<div class="text-muted small">Показано ${data.statistics.unprocessed_examples.length} из ${data.statistics.unprocessed} необработанных записей</div>` : ''}
-                                        </div>
-                                        ` : ''}
-                                        ` : ''}
-                                    </div>
+                                        </div>`;
+                        
+                        // Добавляем блок с причинами необработки, если есть необработанные записи
+                        if (data.statistics.unprocessed > 0) {
+                            let unprocessedHtml = `
+                            <div class="mt-4">
+                                <h6>Причины необработки:</h6>
+                                <ul>`;
+                            
+                            if (data.statistics.unprocessed_stats.no_matching_rule > 0) {
+                                unprocessedHtml += `<li>Нет подходящего правила: ${data.statistics.unprocessed_stats.no_matching_rule} записей</li>`;
+                            }
+                            
+                            if (Object.keys(data.statistics.unprocessed_stats.empty_field_values).length > 0) {
+                                unprocessedHtml += `<li>Пустые значения полей:
+                                    <ul>`;
+                                
+                                Object.entries(data.statistics.unprocessed_stats.empty_field_values).forEach(([field, count]) => {
+                                    unprocessedHtml += `<li>${field}: ${count} записей</li>`;
+                                });
+                                
+                                unprocessedHtml += `</ul>
+                                </li>`;
+                            }
+                            
+                            unprocessedHtml += `</ul>
+                            </div>`;
+                            
+                            statsModal.querySelector('.modal-body').innerHTML += unprocessedHtml;
+                        }
+                        
+                        // Добавляем примеры необработанных записей, если они есть
+                        if (data.statistics.unprocessed_examples && data.statistics.unprocessed_examples.length > 0) {
+                            let examplesHtml = `
+                            <div class="mt-4">
+                                <h6>Примеры необработанных записей:</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Имя класса</th>
+                                                <th>Причина</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>`;
+                            
+                            data.statistics.unprocessed_examples.forEach((example, index) => {
+                                examplesHtml += `
+                                <tr>
+                                    <td>${index + 1}</td>
+                                    <td>${example.class_name}</td>
+                                    <td>${example.reason}</td>
+                                </tr>`;
+                            });
+                            
+                            examplesHtml += `</tbody>
+                                    </table>
+                                </div>`;
+                            
+                            if (data.statistics.unprocessed > data.statistics.unprocessed_examples.length) {
+                                examplesHtml += `<div class="text-muted small">Показано ${data.statistics.unprocessed_examples.length} из ${data.statistics.unprocessed} необработанных записей</div>`;
+                            }
+                            
+                            examplesHtml += `</div>`;
+                            
+                            statsModal.querySelector('.modal-body').innerHTML += examplesHtml;
+                        }
+                        
+                        // Добавляем футер модального окна
+                        statsModal.querySelector('.modal-content').innerHTML += `
                                     <div class="modal-footer">
                                         <button type="button" class="btn btn-primary" data-bs-dismiss="modal" id="reloadAfterRules">Обновить страницу</button>
                                     </div>
@@ -1327,5 +1352,92 @@ document.getElementById('createRuleFromSelected').addEventListener('click', func
         </div>
     </div>
 </div>
+
+<!-- Модальное окно для выбора источника -->
+<div class="modal fade" id="copyFromSourceModal" tabindex="-1" aria-labelledby="copyFromSourceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="copyFromSourceModalLabel">Выбор источника для копирования признаков</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <p>Выберите источник, из которого будут скопированы признаки для текущего батча анализа.</p>
+                    <p class="text-info">
+                        <i class="bi bi-info-circle"></i> 
+                        Признаки будут скопированы для всех записей в текущем списке с учетом примененных фильтров.
+                    </p>
+                </div>
+                
+                <div class="mb-3">
+                    <ul class="nav nav-tabs" id="sourceTypeTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="historical-tab" data-bs-toggle="tab" data-bs-target="#historical-sources" type="button" role="tab" aria-controls="historical-sources" aria-selected="true">
+                                Исторические данные
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis-sources" type="button" role="tab" aria-controls="analysis-sources" aria-selected="false">
+                                Анализ новых данных
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3" id="sourceTypeTabsContent">
+                        <div class="tab-pane fade show active" id="historical-sources" role="tabpanel" aria-labelledby="historical-tab">
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="historical-sources-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Выбор</th>
+                                            <th>Источник</th>
+                                            <th>Файл</th>
+                                            <th>Количество записей</th>
+                                            <th>Дата загрузки</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="5" class="text-center">Загрузка источников...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <div class="tab-pane fade" id="analysis-sources" role="tabpanel" aria-labelledby="analysis-tab">
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="analysis-sources-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Выбор</th>
+                                            <th>Источник</th>
+                                            <th>Файл</th>
+                                            <th>Количество записей</th>
+                                            <th>Дата загрузки</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="5" class="text-center">Загрузка источников...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="applySourceBtn" disabled>Установить признак</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Подключаем скрипт для копирования признаков из источника -->
+<script src="{{ url_for('static', filename='js/copy_from_source.js') }}"></script>
 
 {% endblock %} 
