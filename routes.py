@@ -2537,3 +2537,184 @@ def init_routes(app):
             db.session.rollback()
             logging.error(f"Ошибка при копировании признаков: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    # Новая функция для экспорта всех данных анализа
+    @app.route('/export_all_analysis', methods=['GET'])
+    def export_all_analysis():
+        try:
+            # Получаем все наборы данных анализа
+            all_analysis_data = AnalysisData.query.all()
+            all_analysis_results = AnalysisResult.query.all()
+            
+            if not all_analysis_data or not all_analysis_results:
+                return jsonify({"success": False, "error": "Данные не найдены"}), 404
+
+            # Создаем словарь для быстрого доступа к результатам анализа по имени класса
+            results_dict = {r.mssql_sxclass_name: r.priznak for r in all_analysis_results}
+
+            # Создаем словарь для группировки записей по batch_id
+            batch_groups = {}
+            
+            # Словарь для хранения имен файлов по batch_id
+            batch_file_names = {}
+            
+            for record in all_analysis_data:
+                if record.batch_id not in batch_groups:
+                    batch_groups[record.batch_id] = []
+                    # Сохраняем имя файла для данного batch_id
+                    batch_file_names[record.batch_id] = record.file_name
+                batch_groups[record.batch_id].append(record)
+
+            # Создаем файл Excel в памяти
+            output = io.BytesIO()
+            workbook = xlsxwriter.Workbook(output)
+
+            # Заголовки в точном соответствии с требуемым порядком
+            headers = [
+                ('file_name', 'Имя файла'),
+                ('a_ouid', 'A_OUID'),
+                ('mssql_sxclass_description', 'MSSQL_SXCLASS_DESCRIPTION'),
+                ('mssql_sxclass_name', 'MSSQL_SXCLASS_NAME'),
+                ('mssql_sxclass_map', 'MSSQL_SXCLASS_MAP'),
+                ('priznak', 'priznak'),
+                ('system_class', 'Системный класс'),
+                ('is_link_table', 'Используется как таблица связи'),
+                ('parent_class', 'Родительский класс'),
+                ('child_classes', 'Дочерние классы'),
+                ('child_count', 'Количество дочерних классов'),
+                ('created_date', 'Дата создания'),
+                ('created_by', 'Создал'),
+                ('modified_date', 'Дата изменения'),
+                ('modified_by', 'Изменил'),
+                ('folder_paths', 'Пути папок в консоли'),
+                ('attribute_count', 'Наличие объектов'),
+                ('object_count', 'Количество объектов'),
+                ('last_object_created', 'Дата создания последнего объекта'),
+                ('last_object_modified', 'Дата последнего изменения'),
+                ('category', 'Категория (итог)'),
+                ('migration_flag', 'Признак миграции (итог)'),
+                ('rule_info', 'Rule Info (какое правило сработало)')
+            ]
+
+            # Создаем форматы
+            header_format = workbook.add_format({
+                'bold': True,
+                'align': 'center',
+                'valign': 'vcenter',
+                'bg_color': '#D3D3D3'
+            })
+            
+            batch_header_format = workbook.add_format({
+                'bold': True,
+                'align': 'center',
+                'valign': 'vcenter',
+                'font_size': 14,
+                'bg_color': '#4472C4',
+                'font_color': 'white'
+            })
+
+            # Создаем общий лист со всеми данными
+            all_data_sheet = workbook.add_worksheet('Все данные')
+            
+            # Записываем заголовки
+            for col, (field, header) in enumerate(headers):
+                all_data_sheet.write(0, col, header, header_format)
+                all_data_sheet.set_column(col, col, 20)
+                
+            # Записываем все данные на общем листе
+            row_idx = 1
+            for batch_id, records in batch_groups.items():
+                file_name = batch_file_names.get(batch_id, f"Batch_{batch_id}")
+                for record in records:
+                    data = [
+                        file_name,  # Используем имя файла вместо batch_id
+                        record.a_ouid,
+                        record.mssql_sxclass_description,
+                        record.mssql_sxclass_name,
+                        record.mssql_sxclass_map,
+                        results_dict.get(record.mssql_sxclass_name, ''),  # Получаем priznak из результатов анализа
+                        record.system_class,
+                        record.is_link_table,
+                        record.parent_class,
+                        record.child_classes,
+                        record.child_count,
+                        record.created_date,
+                        record.created_by,
+                        record.modified_date,
+                        record.modified_by,
+                        record.folder_paths,
+                        record.attribute_count,
+                        record.object_count,
+                        record.last_object_created,
+                        record.last_object_modified,
+                        record.category,
+                        record.migration_flag,
+                        record.rule_info
+                    ]
+
+                    for col, value in enumerate(data):
+                        all_data_sheet.write(row_idx, col, str(value) if value is not None else '')
+                    row_idx += 1
+
+            # Также создаем отдельные листы для каждого батча
+            for batch_id, records in batch_groups.items():
+                file_name = batch_file_names.get(batch_id, f"Batch_{batch_id}")
+                # Ограничиваем имя листа до 31 символа (ограничение Excel)
+                sheet_name = file_name[:30] if len(file_name) > 30 else file_name
+                worksheet = workbook.add_worksheet(sheet_name)
+                
+                # Добавляем заголовок файла
+                worksheet.merge_range(0, 0, 0, len(headers) - 1, f'Файл: {file_name}', batch_header_format)
+                
+                # Записываем заголовки на второй строке (пропускаем file_name, т.к. это уже в заголовке)
+                for col, (field, header) in enumerate(headers[1:], start=0):
+                    worksheet.write(1, col, header, header_format)
+                    worksheet.set_column(col, col, 20)
+                
+                # Записываем данные начиная с третьей строки
+                for row_idx, record in enumerate(records, start=2):
+                    data = [
+                        record.a_ouid,
+                        record.mssql_sxclass_description,
+                        record.mssql_sxclass_name,
+                        record.mssql_sxclass_map,
+                        results_dict.get(record.mssql_sxclass_name, ''),  # Получаем priznak из результатов анализа
+                        record.system_class,
+                        record.is_link_table,
+                        record.parent_class,
+                        record.child_classes,
+                        record.child_count,
+                        record.created_date,
+                        record.created_by,
+                        record.modified_date,
+                        record.modified_by,
+                        record.folder_paths,
+                        record.attribute_count,
+                        record.object_count,
+                        record.last_object_created,
+                        record.last_object_modified,
+                        record.category,
+                        record.migration_flag,
+                        record.rule_info
+                    ]
+
+                    for col, value in enumerate(data):
+                        worksheet.write(row_idx, col, str(value) if value is not None else '')
+
+            # Закрываем и возвращаем файл
+            workbook.close()
+            output.seek(0)
+            
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            filename = f"all_analysis_data_{current_date}.xlsx"
+            
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            logging.error(f"Ошибка при экспорте всех данных в Excel: {str(e)}", exc_info=True)
+            return jsonify({"success": False, "error": str(e)}), 500

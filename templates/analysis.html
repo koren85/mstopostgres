@@ -142,16 +142,25 @@
         <div class="card-body">
             <!-- Фильтр по батчам -->
             <div class="mb-3">
-                <label for="batchFilter" class="form-label">Фильтровать по ID батча</label>
-                <select class="form-select" id="batchFilter" name="batch_id">
-                    <option value="">Все батчи</option>
-                    {% for batch_info in batch_options %}
-                    <option value="{{ batch_info.id }}" {% if batch_id == batch_info.id %}selected{% endif %}>
-                        #{{ batch_info.id }} - {{ batch_info.file_name }}
-                    </option>
-                    {% endfor %}
-                </select>
-                <button class="btn btn-primary mt-2" id="applyFilter">Применить фильтр</button>
+                <div class="row">
+                    <div class="col-md-10">
+                        <label for="batchFilter" class="form-label">Фильтровать по ID батча</label>
+                        <select class="form-select" id="batchFilter" name="batch_id">
+                            <option value="">Все батчи</option>
+                            {% for batch_info in batch_options %}
+                            <option value="{{ batch_info.id }}" {% if batch_id == batch_info.id %}selected{% endif %}>
+                                #{{ batch_info.id }} - {{ batch_info.file_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-primary mt-2" id="applyFilter">Применить фильтр</button>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button id="exportAllBtn" class="btn btn-success mt-2">
+                            <i class="bi bi-file-excel"></i> Экспортировать все данные
+                        </button>
+                    </div>
+                </div>
             </div>
             
             <div class="table-responsive">
@@ -498,6 +507,14 @@ document.addEventListener('DOMContentLoaded', function() {
         applyFilterBtn.addEventListener('click', function() {
             const selectedBatch = batchFilter.value;
             window.location.href = "{{ url_for('analysis') }}" + (selectedBatch ? "?batch_id=" + selectedBatch : "");
+        });
+    }
+
+    // Обработка кнопки экспорта всех данных
+    const exportAllBtn = document.getElementById('exportAllBtn');
+    if (exportAllBtn) {
+        exportAllBtn.addEventListener('click', function() {
+            window.location.href = "{{ url_for('export_all_analysis') }}";
         });
     }
 
