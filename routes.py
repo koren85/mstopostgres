@@ -60,44 +60,68 @@ def init_routes(app):
     @app.route('/analyze')
     def analyze():
         try:
-            # Получаем все batch_id
-            batch_ids = db.session.query(MigrationClass.batch_id).distinct().all()
+            # Получаем все batch_id для анализа
+            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(AnalysisData.batch_id.desc()).all()
             batch_ids = [batch[0] for batch in batch_ids]
             
-            # Получаем статистику для каждого batch_id
-            batch_stats = {}
+            # Получаем параметры пагинации
+            page = request.args.get('page', 1, type=int)
+            per_page = 20
+            
+            # Получаем данные анализа с пагинацией
+            query = AnalysisData.query.order_by(AnalysisData.batch_id.desc())
+            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # Получаем список батчей с информацией о прогрессе и результатах
+            batches = []
             for batch_id in batch_ids:
-                batch_stats[batch_id] = get_batch_statistics(batch_id)
+                total_records = AnalysisData.query.filter_by(batch_id=batch_id).count()
+                analyzed_records = AnalysisData.query.filter_by(
+                    batch_id=batch_id,
+                    analysis_state='analyzed'
+                ).count()
+                
+                # Проверяем наличие результатов анализа
+                has_results = AnalysisResult.query.filter_by(batch_id=batch_id).first() is not None
+                
+                progress = (analyzed_records / total_records * 100) if total_records > 0 else 0
+                progress_color = 'success' if progress == 100 else 'warning' if progress > 0 else 'danger'
+                
+                # Получаем информацию о первой записи в батче для извлечения дополнительных данных
+                batch_info = AnalysisData.query.filter_by(batch_id=batch_id).first()
+                file_name = batch_info.file_name if batch_info else f'Анализ {batch_id[:8]}'
+                source_system = batch_info.source_system if batch_info else 'Не указан'
+                upload_date = batch_info.upload_date if batch_info else datetime.now()
+                
+                batches.append({
+                    'batch_id': batch_id,
+                    'file_name': file_name,
+                    'source_system': source_system,
+                    'upload_date': upload_date,
+                    'records_count': total_records,
+                    'progress': round(progress),
+                    'progress_color': progress_color,
+                    'has_results': has_results
+                })
             
-            # Получаем общую статистику
-            total_records = db.session.query(func.count(MigrationClass.id)).scalar()
-            source_systems = db.session.query(func.count(func.distinct(MigrationClass.source_system))).scalar()
-            discrepancies = db.session.query(func.count(Discrepancy.id)).scalar()
-            
-            # Получаем распределение по источникам
-            sources = db.session.query(
-                MigrationClass.source_system,
-                func.count(MigrationClass.id).label('count')
-            ).group_by(MigrationClass.source_system).all()
-            
-            # Получаем все несоответствия
-            discrepancies_list = Discrepancy.query.all()
+            # Формируем опции для фильтра по батчам
+            batch_options = [{'id': batch_id} for batch_id in batch_ids]
             
             # Получаем batch_id из параметров запроса, если он есть
             batch_id = request.args.get('batch_id')
             
-            return render_template('analyze.html', 
-                                 stats={
-                                     'total_records': total_records,
-                                     'source_systems': source_systems,
-                                     'discrepancies': discrepancies
-                                 },
-                                 sources=[source[0] for source in sources],
-                                 discrepancies=discrepancies_list,
+            return render_template('analysis.html', 
+                                 batch_ids=batch_ids,
+                                 items=pagination.items,
+                                 page=page,
+                                 total_pages=pagination.pages,
+                                 batches=batches,
+                                 batch_options=batch_options,
+                                 pagination=pagination,
                                  batch_id=batch_id)
             
         except Exception as e:
-            logging.error(f"Ошибка при анализе данных: {str(e)}", exc_info=True)
+            logging.error(f"Ошибка при отображении страницы анализа: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/suggest_classification', methods=['POST'])
@@ -310,7 +334,7 @@ def init_routes(app):
     def analysis():
         try:
             # Получаем все batch_id для анализа
-            batch_ids = db.session.query(AnalysisData.batch_id).distinct().all()
+            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(AnalysisData.batch_id.desc()).all()
             batch_ids = [batch[0] for batch in batch_ids]
             
             # Получаем параметры пагинации
@@ -336,11 +360,17 @@ def init_routes(app):
                 progress = (analyzed_records / total_records * 100) if total_records > 0 else 0
                 progress_color = 'success' if progress == 100 else 'warning' if progress > 0 else 'danger'
                 
+                # Получаем информацию о первой записи в батче для извлечения дополнительных данных
+                batch_info = AnalysisData.query.filter_by(batch_id=batch_id).first()
+                file_name = batch_info.file_name if batch_info else f'Анализ {batch_id[:8]}'
+                source_system = batch_info.source_system if batch_info else 'Не указан'
+                upload_date = batch_info.upload_date if batch_info else datetime.now()
+                
                 batches.append({
                     'batch_id': batch_id,
-                    'file_name': f'Анализ {batch_id[:8]}',
-                    'source_system': 'Анализ',
-                    'upload_date': datetime.now(),
+                    'file_name': file_name,
+                    'source_system': source_system,
+                    'upload_date': upload_date,
                     'records_count': total_records,
                     'progress': round(progress),
                     'progress_color': progress_color,
@@ -1082,6 +1112,10 @@ def init_routes(app):
                     class_descriptions[result.mssql_sxclass_name] = class_data[0] if class_data else ''
                     class_tables[result.mssql_sxclass_name] = class_data[1] if class_data else ''
             
+            # Получаем source_system для текущего batch_id
+            batch_info = AnalysisData.query.filter_by(batch_id=batch_id).first()
+            source_system = batch_info.source_system if batch_info else 'Не указан'
+            
             return render_template('analysis_results.html',
                                  results=pagination.items,
                                  pagination=pagination,
@@ -1092,9 +1126,10 @@ def init_routes(app):
                                  current_discrepancy=current_discrepancy,
                                  current_card_filter=card_filter,
                                  class_descriptions=class_descriptions,
-                                 class_tables=class_tables,  # Передаем словарь с таблицами в шаблон
+                                 class_tables=class_tables,
                                  priznaks=priznaks,
                                  batch_sources=batch_sources,
+                                 source_system=source_system,
                                  discrepancy_stats=discrepancy_stats)
             
         except Exception as e:
