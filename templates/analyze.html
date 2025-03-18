@@ -64,30 +64,54 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const sources = {{ sources|tojson }};
-    const ctx = document.getElementById('sourcesChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: sources,
-            datasets: [{
-                label: 'Количество записей',
-                data: sources.map(() => Math.floor(Math.random() * 100)), // Replace with actual data
-                backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: {
-                y: {
-                    beginAtZero: true
+(function() {
+    // Функция, которая запускается при загрузке DOM
+    function initChart() {
+        // Получаем данные о источниках из шаблона
+        var sourcesJson = '{{ sources|tojson }}';
+        var sources = JSON.parse(sourcesJson.replace(/&quot;/g, '"'));
+        
+        // Получаем canvas элемент для графика
+        var canvas = document.getElementById('sourcesChart');
+        if (!canvas) return;
+        
+        var ctx = canvas.getContext('2d');
+        
+        // Формируем данные для графика с временными случайными значениями
+        var sourceData = [];
+        for (var i = 0; i < sources.length; i++) {
+            sourceData.push({
+                name: sources[i],
+                count: Math.floor(Math.random() * 100 + 10)
+            });
+        }
+        
+        // Создаем график
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sourceData.map(function(item) { return item.name; }),
+                datasets: [{
+                    label: 'Количество записей',
+                    data: sourceData.map(function(item) { return item.count; }),
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
                 }
             }
-        }
-    });
-});
+        });
+    }
+    
+    // Запускаем функцию после загрузки DOM
+    document.addEventListener('DOMContentLoaded', initChart);
+})();
 </script>
 {% endblock %}

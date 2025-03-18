@@ -60,68 +60,59 @@ def init_routes(app):
     @app.route('/analyze')
     def analyze():
         try:
-            # Получаем все batch_id для анализа
-            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(AnalysisData.batch_id.desc()).all()
-            batch_ids = [batch[0] for batch in batch_ids]
+            # Получаем общую статистику
+            total_records = MigrationClass.query.count()
+            source_systems = db.session.query(func.count(func.distinct(MigrationClass.source_system))).scalar()
+            discrepancies = Discrepancy.query.count()
             
-            # Получаем параметры пагинации
-            page = request.args.get('page', 1, type=int)
-            per_page = 20
+            # Получаем список источников данных
+            sources = db.session.query(MigrationClass.source_system).distinct().all()
+            sources = [source[0] for source in sources if source[0]]
             
-            # Получаем данные анализа с пагинацией
-            query = AnalysisData.query.order_by(AnalysisData.batch_id.desc())
-            pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-            
-            # Получаем список батчей с информацией о прогрессе и результатах
-            batches = []
-            for batch_id in batch_ids:
-                total_records = AnalysisData.query.filter_by(batch_id=batch_id).count()
-                analyzed_records = AnalysisData.query.filter_by(
-                    batch_id=batch_id,
-                    analysis_state='analyzed'
-                ).count()
+            # Получаем данные о расхождениях
+            discrepancy_data = []
+            discrepancy_classes = db.session.query(Discrepancy.class_name).distinct().all()
+            for disc_class in discrepancy_classes:
+                class_name = disc_class[0]
                 
-                # Проверяем наличие результатов анализа
-                has_results = AnalysisResult.query.filter_by(batch_id=batch_id).first() is not None
+                # Получаем описание класса
+                class_desc = db.session.query(MigrationClass.mssql_sxclass_description).filter_by(
+                    mssql_sxclass_name=class_name
+                ).first()
+                description = class_desc[0] if class_desc else ""
                 
-                progress = (analyzed_records / total_records * 100) if total_records > 0 else 0
-                progress_color = 'success' if progress == 100 else 'warning' if progress > 0 else 'danger'
+                # Получаем различные признаки для этого класса
+                different_priznaks = db.session.query(func.distinct(MigrationClass.priznak)).filter_by(
+                    mssql_sxclass_name=class_name
+                ).all()
+                different_priznaks = [p[0] for p in different_priznaks if p[0]]
                 
-                # Получаем информацию о первой записи в батче для извлечения дополнительных данных
-                batch_info = AnalysisData.query.filter_by(batch_id=batch_id).first()
-                file_name = batch_info.file_name if batch_info else f'Анализ {batch_id[:8]}'
-                source_system = batch_info.source_system if batch_info else 'Не указан'
-                upload_date = batch_info.upload_date if batch_info else datetime.now()
+                # Получаем источники для этого класса
+                class_sources = db.session.query(func.distinct(MigrationClass.source_system)).filter_by(
+                    mssql_sxclass_name=class_name
+                ).all()
+                class_sources = [s[0] for s in class_sources if s[0]]
                 
-                batches.append({
-                    'batch_id': batch_id,
-                    'file_name': file_name,
-                    'source_system': source_system,
-                    'upload_date': upload_date,
-                    'records_count': total_records,
-                    'progress': round(progress),
-                    'progress_color': progress_color,
-                    'has_results': has_results
+                discrepancy_data.append({
+                    'class_name': class_name,
+                    'description': description,
+                    'different_priznaks': different_priznaks,
+                    'source_systems': class_sources
                 })
             
-            # Формируем опции для фильтра по батчам
-            batch_options = [{'id': batch_id} for batch_id in batch_ids]
+            stats = {
+                'total_records': total_records,
+                'source_systems': source_systems,
+                'discrepancies': discrepancies
+            }
             
-            # Получаем batch_id из параметров запроса, если он есть
-            batch_id = request.args.get('batch_id')
-            
-            return render_template('analysis.html', 
-                                 batch_ids=batch_ids,
-                                 items=pagination.items,
-                                 page=page,
-                                 total_pages=pagination.pages,
-                                 batches=batches,
-                                 batch_options=batch_options,
-                                 pagination=pagination,
-                                 batch_id=batch_id)
+            return render_template('analyze.html', 
+                                 stats=stats,
+                                 sources=sources,
+                                 discrepancies=discrepancy_data)
             
         except Exception as e:
-            logging.error(f"Ошибка при отображении страницы анализа: {str(e)}", exc_info=True)
+            logging.error(f"Ошибка при отображении страницы статистики: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/suggest_classification', methods=['POST'])

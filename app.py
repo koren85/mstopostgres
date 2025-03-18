@@ -201,13 +201,6 @@ def create_app():
         except (TypeError, ValueError):
             return {}
 
-    @app.route('/analysis')
-    def analysis_page():
-        """
-        Страница анализа данных
-        """
-        return render_template('analysis.html')
-
     return app
 
 if __name__ == '__main__':
