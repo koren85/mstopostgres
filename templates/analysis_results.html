@@ -331,6 +331,47 @@
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, инициализация скриптов...');
     
+    // Добавляем обработчик клика на заголовок страницы
+    const pageTitle = document.querySelector('h2');
+    if (pageTitle) {
+        console.log('Добавляем обработчик клика на заголовок страницы:', pageTitle.textContent);
+        
+        // Делаем заголовок кликабельным визуально
+        pageTitle.style.cursor = 'pointer';
+        pageTitle.title = 'Нажмите, чтобы сбросить все фильтры';
+        
+        // Добавляем небольшой стилистический индикатор, что это кликабельный элемент
+        pageTitle.innerHTML += ' <small><i class="bi bi-arrow-counterclockwise text-muted" style="font-size: 0.7em;"></i></small>';
+        
+        pageTitle.addEventListener('click', function() {
+            console.log('📋 Клик по заголовку страницы - сбрасываем все фильтры');
+            
+            // Получаем форму и элементы формы
+            const form = document.getElementById('filterForm');
+            const statusFilter = document.getElementById('statusFilter');
+            const searchInput = document.getElementById('searchInput');
+            const discrepancyFilter = document.getElementById('discrepancyFilter');
+            const cardFilterInput = document.getElementById('cardFilterInput');
+            
+            // Очищаем все фильтры
+            if (statusFilter) statusFilter.value = '';
+            if (searchInput) searchInput.value = '';
+            if (discrepancyFilter) discrepancyFilter.value = '';
+            if (cardFilterInput) cardFilterInput.value = '';
+            
+            // Отправляем форму для обновления страницы
+            if (form) {
+                const formAction = form.action || window.location.pathname;
+                form.action = formAction + '#results-table';
+                form.submit();
+            } else {
+                console.error('Форма фильтрации не найдена!');
+                // Если форма не найдена, просто перезагружаем страницу
+                window.location.href = window.location.pathname + '?batch_id={{ batch_id }}';
+            }
+        });
+    }
+    
     // Проверяем наличие элементов управления
     console.log('Проверка элементов управления:');
     console.log('- Кнопка "Применить к выбранным":', document.getElementById('applySelected'));
@@ -417,23 +458,40 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Обработка сброса фильтров
     document.getElementById('resetFilters').addEventListener('click', function() {
+        console.log('🔄 Сбрасываем все фильтры...');
+        
         const form = document.getElementById('filterForm');
         const statusFilter = document.getElementById('statusFilter');
         const searchInput = document.getElementById('searchInput');
         const discrepancyFilter = document.getElementById('discrepancyFilter');
         const cardFilterInput = document.getElementById('cardFilterInput');
         
-        // Очищаем значения фильтров
-        statusFilter.value = '';
-        searchInput.value = '';
-        discrepancyFilter.value = '';
-        cardFilterInput.value = '';
+        // Очищаем значения фильтров и выводим логи
+        if (statusFilter) {
+            console.log('Сбрасываем фильтр статуса из:', statusFilter.value);
+            statusFilter.value = '';
+        }
+        
+        if (searchInput) {
+            console.log('Сбрасываем поле поиска из:', searchInput.value);
+            searchInput.value = '';
+        }
+        
+        if (discrepancyFilter) {
+            console.log('Сбрасываем фильтр расхождений из:', discrepancyFilter.value);
+            discrepancyFilter.value = '';
+        }
+        
+        if (cardFilterInput) {
+            console.log('Сбрасываем фильтр по карточке из:', cardFilterInput.value);
+            cardFilterInput.value = '';
+        }
         
         // Добавляем якорь к URL
         const formAction = form.action || window.location.pathname;
         form.action = formAction + '#results-table';
         
-        // Отправляем форму
+        console.log('Отправляем форму с очищенными фильтрами');
         form.submit();
     });
 
@@ -442,9 +500,23 @@ document.addEventListener('DOMContentLoaded', function() {
         card.addEventListener('click', function() {
             const status = this.dataset.status;
             const statusFilter = document.getElementById('statusFilter');
+            const discrepancyFilter = document.getElementById('discrepancyFilter');
+            const cardFilterInput = document.getElementById('cardFilterInput');
             
             // Устанавливаем значение в селект
             statusFilter.value = status;
+            
+            // Сбрасываем фильтр расхождений при смене статуса
+            if (discrepancyFilter) {
+                console.log('Сбрасываем фильтр расхождений при смене статуса');
+                discrepancyFilter.value = '';
+            }
+            
+            // Сбрасываем фильтр по карточке при смене статуса
+            if (cardFilterInput) {
+                console.log('Сбрасываем фильтр по карточке при смене статуса');
+                cardFilterInput.value = '';
+            }
             
             // Добавляем визуальный эффект нажатия
             this.style.transform = 'scale(0.95)';
