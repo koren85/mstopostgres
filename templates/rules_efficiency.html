@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Анализ эффективности правил классификации</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        Данный анализ показывает, насколько точно правила классификации соответствуют ручной классификации классов.
+                        Высокая эффективность означает, что правило точно предсказывает признак миграции, который был установлен вручную.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Эффективность правил</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Категория</th>
+                                    <th>Действие</th>
+                                    <th>Тип условия</th>
+                                    <th>Поле</th>
+                                    <th>Значение</th>
+                                    <th>Эффективность</th>
+                                    <th>Совпадений</th>
+                                    <th>Несовпадений</th>
+                                    <th>Всего применений</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if rules %}
+                                    {% for rule in rules %}
+                                    <tr class="{% if rule.efficiency|replace('%', '')|float >= 90 %}table-success{% elif rule.efficiency|replace('%', '')|float >= 75 %}table-info{% elif rule.efficiency|replace('%', '')|float >= 50 %}table-warning{% else %}table-danger{% endif %}">
+                                        <td>{{ rule.id }}</td>
+                                        <td>{{ rule.category }}</td>
+                                        <td>{{ rule.action }}</td>
+                                        <td>{{ rule.condition_type }}</td>
+                                        <td>{{ rule.condition_field }}</td>
+                                        <td>{{ rule.condition_value }}</td>
+                                        <td><strong>{{ rule.efficiency }}</strong></td>
+                                        <td>{{ rule.matches }}</td>
+                                        <td>{{ rule.mismatches }}</td>
+                                        <td>{{ rule.total }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="10" class="text-center">Нет данных о эффективности правил</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Рекомендации по улучшению правил</h5>
+                </div>
+                <div class="card-body">
+                    <ul>
+                        <li>Правила с эффективностью <span class="text-danger">менее 50%</span> следует пересмотреть или удалить.</li>
+                        <li>Правила с эффективностью <span class="text-warning">от 50% до 75%</span> требуют уточнения условий.</li>
+                        <li>Правила с эффективностью <span class="text-info">от 75% до 90%</span> работают хорошо, но могут быть улучшены.</li>
+                        <li>Правила с эффективностью <span class="text-success">более 90%</span> работают отлично.</li>
+                    </ul>
+
+                    <div class="alert alert-info mt-3">
+                        <strong>Полезный совет:</strong> Для правил с низкой эффективностью рассмотрите возможность разделения на более специфичные 
+                        правила или использования дополнительных условий.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-3 mb-4">
+        <div class="col-md-12 text-end">
+            <a href="/analyze" class="btn btn-secondary">Вернуться к анализу</a>
+        </div>
+    </div>
+</div>
+{% endblock %} 

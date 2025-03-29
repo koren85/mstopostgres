@@ -18,8 +18,72 @@
     <div class="col-md-8">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Распределение по источникам</h5>
-                <canvas id="sourcesChart"></canvas>
+                <h5 class="card-title">Распределение признаков миграции</h5>
+                <canvas id="priznakChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Исторические данные</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Источник</th>
+                                <th>Количество записей</th>
+                                <th>Дата загрузки</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for source in historical_sources %}
+                            <tr>
+                                <td>{{ source.source_system }}</td>
+                                <td>{{ source.records_count }}</td>
+                                <td>{{ source.upload_date|date }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <canvas id="historicalSourcesChart" class="mt-3"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Новые данные для анализа</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Источник</th>
+                                <th>Количество записей</th>
+                                <th>Дата загрузки</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for source in analysis_sources %}
+                            <tr>
+                                <td>{{ source.source_system }}</td>
+                                <td>{{ source.records_count }}</td>
+                                <td>{{ source.upload_date|date }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <canvas id="analysisSourcesChart" class="mt-3"></canvas>
             </div>
         </div>
     </div>
@@ -63,37 +127,107 @@
     </div>
 </div>
 
+<!-- Новый блок с дополнительными видами анализа -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Дополнительный анализ</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">Автоклассификация</h5>
+                                <p class="card-text">Выполнить автоматический анализ новых классов на основе исторических данных.</p>
+                                <a href="/api/analyze_new_classes" class="btn btn-primary">Запустить</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">Консистентность признаков</h5>
+                                <p class="card-text">Анализ соответствия признаков между разными источниками данных.</p>
+                                <a href="/api/analyze_consistency" class="btn btn-primary">Анализировать</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">Эффективность правил</h5>
+                                <p class="card-text">Анализ эффективности существующих правил классификации.</p>
+                                <a href="/api/analyze_rules_efficiency" class="btn btn-primary">Проверить</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function() {
-    // Функция, которая запускается при загрузке DOM
-    function initChart() {
-        // Получаем данные о источниках из шаблона
-        var sourcesJson = '{{ sources|tojson }}';
-        var sources = JSON.parse(sourcesJson.replace(/&quot;/g, '"'));
+    // Инициализация графиков после загрузки DOM
+    document.addEventListener('DOMContentLoaded', function() {
+        // Данные для графиков
+        const historicalSources = {{ historical_sources|tojson|safe }};
+        const analysisSources = {{ analysis_sources|tojson|safe }};
+        const priznak_stats = {{ priznak_stats|tojson|safe }};
         
-        // Получаем canvas элемент для графика
-        var canvas = document.getElementById('sourcesChart');
-        if (!canvas) return;
+        // График распределения признаков
+        const priznak_ctx = document.getElementById('priznakChart').getContext('2d');
+        new Chart(priznak_ctx, {
+            type: 'pie',
+            data: {
+                labels: Object.keys(priznak_stats),
+                datasets: [{
+                    data: Object.values(priznak_stats),
+                    backgroundColor: [
+                        'rgba(255, 99, 132, 0.5)',
+                        'rgba(54, 162, 235, 0.5)',
+                        'rgba(255, 206, 86, 0.5)',
+                        'rgba(75, 192, 192, 0.5)',
+                        'rgba(153, 102, 255, 0.5)',
+                        'rgba(255, 159, 64, 0.5)'
+                    ],
+                    borderColor: [
+                        'rgba(255, 99, 132, 1)',
+                        'rgba(54, 162, 235, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(153, 102, 255, 1)',
+                        'rgba(255, 159, 64, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Распределение значений в поле "priznak"'
+                    }
+                }
+            }
+        });
         
-        var ctx = canvas.getContext('2d');
-        
-        // Формируем данные для графика с временными случайными значениями
-        var sourceData = [];
-        for (var i = 0; i < sources.length; i++) {
-            sourceData.push({
-                name: sources[i],
-                count: Math.floor(Math.random() * 100 + 10)
-            });
-        }
-        
-        // Создаем график
-        new Chart(ctx, {
+        // График исторических источников
+        const historicalCtx = document.getElementById('historicalSourcesChart').getContext('2d');
+        new Chart(historicalCtx, {
             type: 'bar',
             data: {
-                labels: sourceData.map(function(item) { return item.name; }),
+                labels: historicalSources.map(source => source.source_system),
                 datasets: [{
                     label: 'Количество записей',
-                    data: sourceData.map(function(item) { return item.count; }),
+                    data: historicalSources.map(source => source.records_count),
                     backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     borderColor: 'rgba(54, 162, 235, 1)',
                     borderWidth: 1
@@ -108,10 +242,31 @@
                 }
             }
         });
-    }
-    
-    // Запускаем функцию после загрузки DOM
-    document.addEventListener('DOMContentLoaded', initChart);
+        
+        // График источников анализа
+        const analysisCtx = document.getElementById('analysisSourcesChart').getContext('2d');
+        new Chart(analysisCtx, {
+            type: 'bar',
+            data: {
+                labels: analysisSources.map(source => source.source_system),
+                datasets: [{
+                    label: 'Количество записей',
+                    data: analysisSources.map(source => source.records_count),
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    });
 })();
 </script>
 {% endblock %}

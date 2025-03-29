@@ -201,6 +201,19 @@ def create_app():
         except (TypeError, ValueError):
             return {}
 
+    @app.template_filter('date')
+    def date_filter(s):
+        try:
+            if not s:
+                return ''
+            if isinstance(s, str):
+                dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            else:
+                dt = s
+            return dt.strftime('%d.%m.%Y %H:%M')
+        except Exception:
+            return s
+
     return app
 
 if __name__ == '__main__':

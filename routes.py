@@ -1,4 +1,4 @@
-from flask import render_template, request, jsonify, url_for, redirect, send_file
+from flask import render_template, request, jsonify, url_for, redirect, send_file, flash, session
 from datetime import datetime
 import uuid
 import logging
@@ -65,10 +65,6 @@ def init_routes(app):
             source_systems = db.session.query(func.count(func.distinct(MigrationClass.source_system))).scalar()
             discrepancies = Discrepancy.query.count()
             
-            # Получаем список источников данных
-            sources = db.session.query(MigrationClass.source_system).distinct().all()
-            sources = [source[0] for source in sources if source[0]]
-            
             # Получаем данные о расхождениях
             discrepancy_data = []
             discrepancy_classes = db.session.query(Discrepancy.class_name).distinct().all()
@@ -100,6 +96,59 @@ def init_routes(app):
                     'source_systems': class_sources
                 })
             
+            # Получаем статистику по историческим источникам данных
+            historical_sources = db.session.query(
+                MigrationClass.source_system,
+                func.count(MigrationClass.id).label('records_count'),
+                func.min(MigrationClass.upload_date).label('upload_date')
+            ).group_by(
+                MigrationClass.source_system
+            ).having(
+                func.count(MigrationClass.id) > 0
+            ).all()
+            
+            # Преобразуем результаты запроса в список словарей
+            historical_sources_data = [{
+                'source_system': src.source_system,
+                'records_count': src.records_count,
+                'upload_date': src.upload_date.isoformat() if src.upload_date else None
+            } for src in historical_sources]
+            
+            # Получаем статистику по новым данным для анализа
+            analysis_sources = db.session.query(
+                AnalysisData.source_system,
+                func.count(AnalysisData.id).label('records_count'),
+                func.min(AnalysisData.upload_date).label('upload_date')
+            ).group_by(
+                AnalysisData.source_system
+            ).having(
+                func.count(AnalysisData.id) > 0
+            ).all()
+            
+            # Преобразуем результаты запроса в список словарей
+            analysis_sources_data = [{
+                'source_system': src.source_system,
+                'records_count': src.records_count,
+                'upload_date': src.upload_date.isoformat() if src.upload_date else None
+            } for src in analysis_sources]
+            
+            # Получаем распределение признаков в исторических данных
+            priznak_stats = db.session.query(
+                MigrationClass.priznak,
+                func.count(MigrationClass.id).label('count')
+            ).filter(
+                MigrationClass.priznak.isnot(None)
+            ).group_by(
+                MigrationClass.priznak
+            ).all()
+            
+            # Преобразуем в словарь для передачи в шаблон
+            priznak_stats_dict = {p.priznak: p.count for p in priznak_stats if p.priznak}
+            
+            # Если нет признаков, добавляем пустые значения для графика
+            if not priznak_stats_dict:
+                priznak_stats_dict = {"Нет данных": 0}
+            
             stats = {
                 'total_records': total_records,
                 'source_systems': source_systems,
@@ -107,13 +156,15 @@ def init_routes(app):
             }
             
             return render_template('analyze.html', 
-                                 stats=stats,
-                                 sources=sources,
-                                 discrepancies=discrepancy_data)
+                                stats=stats,
+                                historical_sources=historical_sources_data,
+                                analysis_sources=analysis_sources_data,
+                                priznak_stats=priznak_stats_dict,
+                                discrepancies=discrepancy_data)
             
         except Exception as e:
-            logging.error(f"Ошибка при отображении страницы статистики: {str(e)}", exc_info=True)
-            return jsonify({'success': False, 'error': str(e)}), 500
+            logging.error(f"Ошибка при формировании страницы анализа: {str(e)}", exc_info=True)
+            return f"Ошибка: {str(e)}", 500
 
     @app.route('/api/suggest_classification', methods=['POST'])
     def get_classification_suggestion():
@@ -1636,22 +1687,102 @@ def init_routes(app):
     def transfer_rules():
         page = request.args.get('page', 1, type=int)
         per_page = 50  # Количество правил на странице
+        search_query = request.args.get('search', '')
+        
+        # Формируем запрос с фильтрацией, если указан поисковый запрос
+        query = TransferRule.query.order_by(TransferRule.priority)
+        
+        if search_query:
+            query = query.filter(TransferRule.condition_value.ilike(f'%{search_query}%'))
         
         # Получаем правила с пагинацией
-        pagination = TransferRule.query.order_by(TransferRule.priority).paginate(
+        pagination = query.paginate(
             page=page, per_page=per_page, error_out=False
         )
         
         rules = pagination.items
         total_pages = pagination.pages
         
+        # Если есть правила, находим похожие условия для каждого
+        if rules:
+            find_similar_conditions(rules)
+        
         return render_template(
             'transfer_rules.html',
             rules=rules,
             page=page,
-            total_pages=total_pages
+            total_pages=total_pages,
+            search_query=search_query
         )
-    
+
+    def find_similar_conditions(rules):
+        """
+        Для каждого правила находит другие правила с похожими условиями
+        
+        Args:
+            rules: список объектов TransferRule
+        """
+        # Получаем все правила для поиска совпадений
+        all_rules = TransferRule.query.all()
+        all_rules_dict = {rule.id: rule for rule in all_rules}
+        
+        # Индекс условий для быстрого поиска
+        condition_index = {}
+        
+        # Сначала проиндексируем все правила по частям условий
+        for rule in all_rules:
+            if not rule.condition_value:
+                continue
+                
+            # Разбиваем составное условие на части и нормализуем их
+            condition_parts = [part.strip() for part in rule.condition_value.split(';') if part.strip()]
+            
+            # Добавляем каждую часть условия в индекс
+            for part in condition_parts:
+                if part not in condition_index:
+                    condition_index[part] = set()
+                condition_index[part].add(rule.id)
+        
+        # Теперь находим похожие правила для каждого правила в списке
+        for rule in rules:
+            # Пропускаем пустые условия
+            if not rule.condition_value:
+                rule.similar_rules = []
+                continue
+                
+            # Разбиваем составное условие на части и нормализуем их
+            condition_parts = [part.strip() for part in rule.condition_value.split(';') if part.strip()]
+            
+            # Множество ID правил с похожими условиями
+            similar_rule_ids = set()
+            
+            # Для каждой части условия текущего правила
+            for part in condition_parts:
+                # Если эта часть условия есть в индексе, добавляем все правила с таким же условием
+                if part in condition_index:
+                    # Добавляем все правила, кроме текущего
+                    similar_rule_ids.update(rule_id for rule_id in condition_index[part] if rule_id != rule.id)
+            
+            # Формируем список правил с похожими условиями с дополнительной информацией
+            rule.similar_rules = []
+            for rule_id in similar_rule_ids:
+                similar_rule = all_rules_dict[rule_id]
+                # Находим общие части условий
+                common_parts = []
+                for part in condition_parts:
+                    if part in similar_rule.condition_value:
+                        common_parts.append(part)
+                
+                rule.similar_rules.append({
+                    "id": rule_id, 
+                    "value": similar_rule.condition_value,
+                    "common_parts": common_parts,
+                    "transfer_action": similar_rule.transfer_action  # Добавляем информацию о действии
+                })
+            
+            # Сортируем похожие правила по количеству общих частей (по убыванию)
+            rule.similar_rules.sort(key=lambda x: len(x["common_parts"]), reverse=True)
+
     @app.route('/classification_rules')
     def classification_rules():
         page = request.args.get('page', 1, type=int)
@@ -2744,3 +2875,277 @@ def init_routes(app):
         except Exception as e:
             logging.error(f"Ошибка при экспорте всех данных в Excel: {str(e)}", exc_info=True)
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route('/api/analyze_new_classes', methods=['GET'])
+    def analyze_new_classes():
+        """
+        Автоматический анализ новых классов на основе исторических данных
+        """
+        try:
+            # Получаем все новые записи для анализа
+            new_records = AnalysisData.query.filter(
+                AnalysisData.priznak.is_(None),
+                AnalysisData.analysis_state == 'pending'
+            ).all()
+            
+            if not new_records:
+                flash('Нет новых записей для анализа.', 'warning')
+                return redirect('/analyze')
+            
+            # Получаем исторические данные
+            historical_records = MigrationClass.query.filter(
+                MigrationClass.priznak.isnot(None)
+            ).all()
+            
+            # Создаем индекс для быстрого поиска
+            historical_index = {}
+            for record in historical_records:
+                if record.mssql_sxclass_name in historical_index:
+                    historical_index[record.mssql_sxclass_name].append(record)
+                else:
+                    historical_index[record.mssql_sxclass_name] = [record]
+            
+            # Анализируем новые записи
+            analyzed_count = 0
+            matched_count = 0
+            for record in new_records:
+                if record.mssql_sxclass_name in historical_index:
+                    # Находим соответствующие исторические записи
+                    matches = historical_index[record.mssql_sxclass_name]
+                    
+                    # Проверяем совпадение priznaks
+                    priznaks = {}
+                    for match in matches:
+                        if match.priznak:
+                            if match.priznak in priznaks:
+                                priznaks[match.priznak] += 1
+                            else:
+                                priznaks[match.priznak] = 1
+                    
+                    if priznaks:
+                        # Находим наиболее часто встречающийся priznak
+                        max_count = 0
+                        max_priznak = None
+                        for priznak, count in priznaks.items():
+                            if count > max_count:
+                                max_count = count
+                                max_priznak = priznak
+                        
+                        # Устанавливаем priznak и обновляем статус
+                        record.priznak = max_priznak
+                        record.confidence_score = max_count / len(matches)
+                        record.classified_by = 'historical'
+                        record.analysis_state = 'analyzed'
+                        matched_count += 1
+                    
+                    analyzed_count += 1
+            
+            # Сохраняем изменения
+            db.session.commit()
+            
+            flash(f'Проанализировано {analyzed_count} записей, найдено соответствий: {matched_count}', 'success')
+            return redirect('/analyze')
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при анализе новых классов: {str(e)}", exc_info=True)
+            flash(f'Ошибка при анализе: {str(e)}', 'error')
+            return redirect('/analyze')
+
+    @app.route('/api/analyze_consistency', methods=['GET'])
+    def analyze_consistency():
+        """
+        Анализ консистентности признаков между разными источниками данных
+        """
+        try:
+            # Получаем список классов, которые встречаются в разных источниках
+            multi_source_classes = db.session.query(
+                MigrationClass.mssql_sxclass_name
+            ).group_by(
+                MigrationClass.mssql_sxclass_name
+            ).having(
+                func.count(func.distinct(MigrationClass.source_system)) > 1
+            ).all()
+            
+            classes = [cls[0] for cls in multi_source_classes]
+            
+            # Анализируем консистентность признаков для каждого класса
+            inconsistencies = []
+            for class_name in classes:
+                # Получаем все записи для данного класса
+                class_records = MigrationClass.query.filter_by(
+                    mssql_sxclass_name=class_name
+                ).all()
+                
+                # Группируем по источникам и признакам
+                source_priznaks = {}
+                for record in class_records:
+                    if record.source_system and record.priznak:
+                        if record.source_system not in source_priznaks:
+                            source_priznaks[record.source_system] = set()
+                        source_priznaks[record.source_system].add(record.priznak)
+                
+                # Проверяем, есть ли несоответствия между источниками
+                unique_priznaks = set()
+                for priznaks in source_priznaks.values():
+                    unique_priznaks.update(priznaks)
+                
+                if len(unique_priznaks) > 1:
+                    # Есть несоответствие - разные признаки в разных источниках
+                    # Проверяем, есть ли уже запись о расхождении
+                    existing_disc = Discrepancy.query.filter_by(
+                        class_name=class_name
+                    ).first()
+                    
+                    if not existing_disc:
+                        # Создаем новую запись о расхождении
+                        description = db.session.query(
+                            MigrationClass.mssql_sxclass_description
+                        ).filter_by(
+                            mssql_sxclass_name=class_name
+                        ).first()
+                        
+                        discrepancy = Discrepancy(
+                            class_name=class_name,
+                            description=description[0] if description else "",
+                            different_priznaks=list(unique_priznaks),
+                            source_systems=list(source_priznaks.keys())
+                        )
+                        db.session.add(discrepancy)
+                        inconsistencies.append(class_name)
+            
+            db.session.commit()
+            
+            message = f'Выполнен анализ консистентности. Найдено {len(inconsistencies)} новых несоответствий.'
+            flash(message, 'success')
+            return redirect('/analyze')
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при анализе консистентности: {str(e)}", exc_info=True)
+            flash(f'Ошибка при анализе: {str(e)}', 'error')
+            return redirect('/analyze')
+
+    @app.route('/api/analyze_rules_efficiency', methods=['GET'])
+    def analyze_rules_efficiency():
+        """
+        Анализ эффективности существующих правил классификации
+        """
+        try:
+            # Получаем все правила переноса
+            rules = TransferRule.query.all()
+            
+            # Получаем записи с установленными вручную признаками
+            manual_records = MigrationClass.query.filter(
+                MigrationClass.priznak.isnot(None),
+                MigrationClass.classified_by == 'manual'
+            ).all()
+            
+            # Статистика для правил
+            rule_stats = {rule.id: {'matches': 0, 'mismatches': 0, 'rule': rule} for rule in rules}
+            
+            # Применяем правила к записям с ручной классификацией
+            for record in manual_records:
+                # Применяем правила по порядку
+                for rule in rules:
+                    result = apply_rule_to_record(rule, record)
+                    if result:
+                        if result == record.priznak:
+                            rule_stats[rule.id]['matches'] += 1
+                        else:
+                            rule_stats[rule.id]['mismatches'] += 1
+                        break
+            
+            # Сортируем правила по эффективности (процент совпадений)
+            sorted_rules = []
+            for rule_id, stats in rule_stats.items():
+                total = stats['matches'] + stats['mismatches']
+                if total > 0:
+                    efficiency = (stats['matches'] / total) * 100
+                    sorted_rules.append({
+                        'rule_id': rule_id,
+                        'rule': stats['rule'],
+                        'matches': stats['matches'],
+                        'mismatches': stats['mismatches'],
+                        'total': total,
+                        'efficiency': efficiency
+                    })
+            
+            # Сортируем по эффективности (убывание)
+            sorted_rules.sort(key=lambda x: x['efficiency'], reverse=True)
+            
+            # Сохраняем результаты в сессии для отображения
+            session['rule_efficiency'] = [
+                {
+                    'id': r['rule_id'],
+                    'category': r['rule'].category_name,
+                    'action': r['rule'].transfer_action,
+                    'condition_type': r['rule'].condition_type,
+                    'condition_field': r['rule'].condition_field,
+                    'condition_value': r['rule'].condition_value,
+                    'efficiency': f"{r['efficiency']:.1f}%",
+                    'matches': r['matches'],
+                    'mismatches': r['mismatches'],
+                    'total': r['total']
+                } for r in sorted_rules if r['total'] > 0
+            ]
+            
+            return redirect('/rules_efficiency')
+            
+        except Exception as e:
+            logging.error(f"Ошибка при анализе эффективности правил: {str(e)}", exc_info=True)
+            flash(f'Ошибка при анализе: {str(e)}', 'error')
+            return redirect('/analyze')
+
+    @app.route('/rules_efficiency')
+    def rules_efficiency():
+        """
+        Страница с результатами анализа эффективности правил
+        """
+        rule_efficiency = session.get('rule_efficiency', [])
+        return render_template('rules_efficiency.html', rules=rule_efficiency)
+
+def apply_rule_to_record(rule, record):
+    """
+    Применяет правило к записи и проверяет, соответствует ли она правилу
+    
+    Args:
+        rule: объект TransferRule
+        record: объект MigrationClass или AnalysisData
+        
+    Returns:
+        priznak, если правило применимо, None в противном случае
+    """
+    # Получаем значение поля для проверки
+    field_value = None
+    if rule.condition_field == 'MSSQL_SXCLASS_NAME':
+        field_value = record.mssql_sxclass_name
+    elif rule.condition_field == 'MSSQL_SXCLASS_DESCRIPTION':
+        field_value = record.mssql_sxclass_description
+    elif rule.condition_field == 'MSSQL_SXCLASS_MAP':
+        field_value = record.mssql_sxclass_map
+    elif rule.condition_field == 'Родительский класс':
+        field_value = record.parent_class
+    elif rule.condition_field == 'Создал':
+        field_value = record.created_by
+
+    # Проверяем на соответствие
+    if not field_value and rule.condition_type != 'ALWAYS_TRUE':
+        return None
+
+    match = False
+    if rule.condition_type == 'EQUALS':
+        match = field_value == rule.condition_value
+    elif rule.condition_type == 'STARTS_WITH':
+        match = field_value and field_value.startswith(rule.condition_value)
+    elif rule.condition_type == 'ENDS_WITH':
+        match = field_value and field_value.endswith(rule.condition_value)
+    elif rule.condition_type == 'CONTAINS':
+        match = field_value and rule.condition_value in field_value
+    elif rule.condition_type == 'ALWAYS_TRUE':
+        match = True
+
+    if match:
+        return rule.transfer_action
+    
+    return None
