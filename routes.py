@@ -3105,6 +3105,223 @@ def init_routes(app):
         rule_efficiency = session.get('rule_efficiency', [])
         return render_template('rules_efficiency.html', rules=rule_efficiency)
 
+    @app.route('/api/record_details/<int:result_id>', methods=['GET'])
+    def get_record_details(result_id):
+        """
+        API endpoint для получения детальной информации о записи результата анализа
+        """
+        try:
+            logging.info(f"[API] Запрос детальной информации о записи с ID {result_id}")
+            
+            # Находим результат анализа
+            analysis_result = AnalysisResult.query.get_or_404(result_id)
+            logging.info(f"[API] Найден результат анализа: batch_id={analysis_result.batch_id}, class_name={analysis_result.mssql_sxclass_name}")
+            
+            # Находим исходные данные в таблице analysis_data по batch_id и имени класса
+            record_data = AnalysisData.query.filter_by(
+                batch_id=analysis_result.batch_id,
+                mssql_sxclass_name=analysis_result.mssql_sxclass_name
+            ).first()
+            
+            if not record_data:
+                logging.warning(f"[API] Не найдены исходные данные для результата анализа: batch_id={analysis_result.batch_id}, class_name={analysis_result.mssql_sxclass_name}")
+                
+                # Если не найдены в analysis_data, попробуем найти в MigrationClass
+                record_data = MigrationClass.query.filter_by(
+                    mssql_sxclass_name=analysis_result.mssql_sxclass_name
+                ).first()
+                
+                if not record_data:
+                    logging.error(f"[API] Не найдены данные ни в таблице analysis_data, ни в таблице migration_classes")
+                    return jsonify({
+                        'success': False,
+                        'error': 'Не найдены исходные данные для результата анализа'
+                    }), 404
+                
+                logging.info(f"[API] Найдены данные в таблице migration_classes")
+            else:
+                logging.info(f"[API] Найдены данные в таблице analysis_data")
+            
+            # Собираем детальную информацию о записи
+            details = {
+                'mssql_sxclass_name': record_data.mssql_sxclass_name,
+                'created_date': record_data.created_date,
+                'created_by': record_data.created_by,
+                'modified_date': record_data.modified_date,
+                'modified_by': record_data.modified_by,
+                'folder_paths': record_data.folder_paths,
+                'object_count': record_data.object_count,
+                'last_object_created': record_data.last_object_created,
+                'last_object_modified': record_data.last_object_modified
+            }
+            
+            # Добавляем дополнительную проверку на None
+            for key, value in details.items():
+                if value is None:
+                    details[key] = 'Нет данных'
+            
+            logging.info(f"[API] Возвращаем детальную информацию о записи: {details}")
+            
+            return jsonify({
+                'success': True,
+                'details': details
+            })
+            
+        except Exception as e:
+            logging.error(f"Ошибка при получении данных о записи: {str(e)}", exc_info=True)
+            
+            # Более подробное сообщение об ошибке
+            error_message = f"Ошибка при получении данных о записи (ID {result_id}): {str(e)}"
+            logging.error(error_message)
+            
+            return jsonify({
+                'success': False,
+                'error': error_message
+            }), 500
+
+    @app.route('/test_record_details/<int:result_id>')
+    def test_record_details_view(result_id):
+        """
+        Тестовый HTML-endpoint для просмотра детальной информации о записи
+        """
+        try:
+            # Находим результат анализа
+            analysis_result = AnalysisResult.query.get_or_404(result_id)
+            
+            # Находим исходные данные в таблице analysis_data по batch_id и имени класса
+            record_data = AnalysisData.query.filter_by(
+                batch_id=analysis_result.batch_id,
+                mssql_sxclass_name=analysis_result.mssql_sxclass_name
+            ).first()
+            
+            if not record_data:
+                # Если не найдены в analysis_data, попробуем найти в MigrationClass
+                record_data = MigrationClass.query.filter_by(
+                    mssql_sxclass_name=analysis_result.mssql_sxclass_name
+                ).first()
+                
+                if not record_data:
+                    return f"""
+                    <html>
+                    <head><title>Детали записи</title></head>
+                    <body>
+                        <h1>Ошибка</h1>
+                        <p>Не найдены исходные данные для результата анализа: 
+                        batch_id={analysis_result.batch_id}, 
+                        class_name={analysis_result.mssql_sxclass_name}</p>
+                    </body>
+                    </html>
+                    """
+            
+            # Собираем детальную информацию о записи
+            details = {
+                'mssql_sxclass_name': record_data.mssql_sxclass_name or 'Нет данных',
+                'created_date': record_data.created_date or 'Нет данных',
+                'created_by': record_data.created_by or 'Нет данных',
+                'modified_date': record_data.modified_date or 'Нет данных',
+                'modified_by': record_data.modified_by or 'Нет данных',
+                'folder_paths': record_data.folder_paths or 'Нет данных',
+                'object_count': record_data.object_count or 'Нет данных',
+                'last_object_created': record_data.last_object_created or 'Нет данных',
+                'last_object_modified': record_data.last_object_modified or 'Нет данных'
+            }
+            
+            # Генерируем HTML для отображения данных
+            html = f"""
+            <html>
+            <head>
+                <title>Детали записи</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    .details-card {{ border: 2px solid #007bff; border-radius: 6px; padding: 15px; max-width: 500px; }}
+                    .details-header {{ font-weight: bold; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #dee2e6; font-size: 16px; color: #000; text-align: center; }}
+                    .details-row {{ display: flex; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dotted #eee; }}
+                    .details-label {{ flex: 0 0 45%; font-weight: 600; color: #495057; padding-right: 10px; }}
+                    .details-value {{ flex: 0 0 55%; word-break: break-word; color: #212529; }}
+                </style>
+            </head>
+            <body>
+                <h1>Тестовая страница деталей записи</h1>
+                <p>Эта страница показывает то же самое, что будет видно во всплывающей подсказке</p>
+                
+                <div class="details-card">
+                    <div class="details-header">
+                        {details['mssql_sxclass_name']} - Детальная информация
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Дата создания:</div>
+                        <div class="details-value">{details['created_date']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Создал:</div>
+                        <div class="details-value">{details['created_by']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Дата изменения:</div>
+                        <div class="details-value">{details['modified_date']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Изменил:</div>
+                        <div class="details-value">{details['modified_by']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Пути папок в консоли:</div>
+                        <div class="details-value">{details['folder_paths']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Наличие объектов:</div>
+                        <div class="details-value">{"Да" if details['object_count'] and details['object_count'] != 'Нет данных' and int(details['object_count']) > 0 else "Нет"}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Количество объектов:</div>
+                        <div class="details-value">{details['object_count']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Дата создания последнего объекта:</div>
+                        <div class="details-value">{details['last_object_created']}</div>
+                    </div>
+                    
+                    <div class="details-row">
+                        <div class="details-label">Дата последнего изменения:</div>
+                        <div class="details-value">{details['last_object_modified']}</div>
+                    </div>
+                </div>
+                
+                <h2>Исходные данные из API:</h2>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; overflow: auto;">
+                {{
+                    "success": true,
+                    "details": {json.dumps(details, indent=4, ensure_ascii=False)}
+                }}
+                </pre>
+            </body>
+            </html>
+            """
+            
+            return html
+            
+        except Exception as e:
+            error_message = f"Ошибка при получении данных о записи (ID {result_id}): {str(e)}"
+            logging.error(error_message, exc_info=True)
+            
+            return f"""
+            <html>
+            <head><title>Ошибка</title></head>
+            <body>
+                <h1>Ошибка</h1>
+                <p>{error_message}</p>
+            </body>
+            </html>
+            """
+
 def apply_rule_to_record(rule, record):
     """
     Применяет правило к записи и проверяет, соответствует ли она правилу
