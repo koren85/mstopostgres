@@ -98,6 +98,35 @@ document.addEventListener('DOMContentLoaded', function() {
             background-color: #f8d7da;
             border-radius: 4px;
         }
+        
+        .record-tooltip .btn {
+            padding: 3px 8px;
+            font-size: 12px;
+            margin-right: 5px;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 4px;
+        }
+        
+        .record-tooltip .btn-outline-primary {
+            color: #007bff;
+            border-color: #007bff;
+        }
+        
+        .record-tooltip .btn-outline-primary:hover {
+            color: #fff;
+            background-color: #007bff;
+        }
+        
+        .record-tooltip .btn-outline-info {
+            color: #17a2b8;
+            border-color: #17a2b8;
+        }
+        
+        .record-tooltip .btn-outline-info:hover {
+            color: #fff;
+            background-color: #17a2b8;
+        }
     `;
     document.head.appendChild(styleElement);
     console.log('Добавлены стили для всплывающей подсказки');
@@ -105,6 +134,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Переменная для хранения текущего таймера
     let showTimeout;
     let hideTimeout;
+    // Добавляем переменную для отслеживания замирания тултипа
+    let tooltipFrozen = false;
+    let lastResultId = null;
     
     // Находим все строки в таблице результатов анализа и добавляем обработчики событий
     const tableRows = document.querySelectorAll('#results-table tbody tr');
@@ -209,6 +241,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const mouseX = event.clientX;
         const mouseY = event.clientY;
         
+        // Проверяем, не показываем ли уже тултип для этой же записи
+        if (resultId === lastResultId && tooltip.classList.contains('visible')) {
+            // Если тултип уже показан для этой записи, просто выходим
+            return;
+        }
+        
         // Устанавливаем таймер перед показом, чтобы избежать моргания
         showTimeout = setTimeout(() => {
             // Устанавливаем позицию подсказки относительно курсора
@@ -220,7 +258,17 @@ document.addEventListener('DOMContentLoaded', function() {
             tooltip.innerHTML = '<div class="record-tooltip-loading"><i class="bi bi-hourglass-split me-2"></i>Загрузка данных...</div>';
             tooltip.classList.add('visible');
             
-            console.log(`Подсказка отображена с индикатором загрузки`);
+            // Запоминаем текущий ID результата
+            lastResultId = resultId;
+            
+            // Устанавливаем флаг замирания на 1 секунду
+            tooltipFrozen = true;
+            setTimeout(() => {
+                tooltipFrozen = false;
+                console.log('Тултип разморожен и может следовать за курсором');
+            }, 3000);
+            
+            console.log(`Подсказка отображена с индикатором загрузки и заморожена на 3 секунды`);
             
             // Получаем данные о записи
             fetchRecordDetails(resultId);
@@ -238,14 +286,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Устанавливаем таймер перед скрытием
         hideTimeout = setTimeout(() => {
             tooltip.classList.remove('visible');
+            lastResultId = null;
             console.log('Подсказка скрыта');
         }, 300); // Задержка в 300 мс
     }
     
     // Обработчик движения мыши в ячейке
     function handleCellMouseMove(event) {
-        // Обновляем позицию только если подсказка уже видима
-        if (tooltip.classList.contains('visible')) {
+        // Обновляем позицию только если подсказка уже видима И не заморожена
+        if (tooltip.classList.contains('visible') && !tooltipFrozen) {
             const mouseX = event.clientX;
             const mouseY = event.clientY;
             
@@ -330,6 +379,34 @@ document.addEventListener('DOMContentLoaded', function() {
         tooltipContent += createTooltipRow('Количество объектов', details.object_count);
         tooltipContent += createTooltipRow('Дата создания последнего объекта', details.last_object_created);
         tooltipContent += createTooltipRow('Дата последнего изменения', details.last_object_modified);
+        
+        // Добавляем ссылки на контекст, если есть базовый URL
+        if (details.base_url) {
+            let linksHtml = '';
+            
+            // Ссылка на объект в контексте (если есть a_ouid)
+            if (details.a_ouid && details.a_ouid !== 'Нет данных') {
+                const objectUrl = `${details.base_url}admin/edit.htm?id=${details.a_ouid}%40SXClass`;
+                linksHtml += `<div><a href="${objectUrl}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">
+                    <i class="bi bi-box-arrow-up-right"></i> Перейти к объекту</a></div>`;
+            }
+            
+            // Ссылка на объекты класса
+            if (details.mssql_sxclass_name && details.mssql_sxclass_name !== 'Нет данных') {
+                const classObjectsUrl = `${details.base_url}admin/objectsofclass.htm?cls=${details.mssql_sxclass_name}`;
+                linksHtml += `<div><a href="${classObjectsUrl}" target="_blank" class="btn btn-sm btn-outline-info mt-1">
+                    <i class="bi bi-boxes"></i> Объекты класса</a></div>`;
+            }
+            
+            if (linksHtml) {
+                tooltipContent += `
+                    <div class="record-tooltip-row">
+                        <div class="record-tooltip-label">Ссылки:</div>
+                        <div class="record-tooltip-value">${linksHtml}</div>
+                    </div>
+                `;
+            }
+        }
         
         // Обновляем содержимое подсказки
         console.log('Итоговое содержимое подсказки:', tooltipContent);

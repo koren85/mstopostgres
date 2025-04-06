@@ -77,6 +77,7 @@ class AnalysisData(db.Model):
     migration_flag = db.Column(db.Text)
     rule_info = db.Column(db.Text)
     source_system = db.Column(db.String(100), nullable=False)
+    base_url = db.Column(db.String(255))
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
     confidence_score = db.Column(db.Float)
     classified_by = db.Column(db.String(50))

@@ -569,6 +569,9 @@ def init_routes(app):
             if not source_system:
                 return jsonify({'success': False, 'error': 'Не указан источник данных'}), 400
             
+            # Получаем значение базового URL, если есть
+            base_url = request.form.get('base_url', '')
+            
             # Получаем максимальный batch_id и увеличиваем его на 1
             max_batch_id = db.session.query(func.max(AnalysisData.batch_id)).scalar()
             batch_id = 1 if max_batch_id is None else int(max_batch_id) + 1
@@ -625,6 +628,7 @@ def init_routes(app):
                         'batch_id': batch_id,
                         'file_name': file.filename,
                         'source_system': source_system,
+                        'base_url': base_url,
                         'analysis_state': 'pending'
                     }
                     
@@ -3144,15 +3148,17 @@ def init_routes(app):
             
             # Собираем детальную информацию о записи
             details = {
-                'mssql_sxclass_name': record_data.mssql_sxclass_name,
-                'created_date': record_data.created_date,
-                'created_by': record_data.created_by,
-                'modified_date': record_data.modified_date,
-                'modified_by': record_data.modified_by,
-                'folder_paths': record_data.folder_paths,
-                'object_count': record_data.object_count,
-                'last_object_created': record_data.last_object_created,
-                'last_object_modified': record_data.last_object_modified
+                'mssql_sxclass_name': record_data.mssql_sxclass_name or 'Нет данных',
+                'created_date': record_data.created_date or 'Нет данных',
+                'created_by': record_data.created_by or 'Нет данных',
+                'modified_date': record_data.modified_date or 'Нет данных',
+                'modified_by': record_data.modified_by or 'Нет данных',
+                'folder_paths': record_data.folder_paths or 'Нет данных',
+                'object_count': record_data.object_count or 'Нет данных',
+                'last_object_created': record_data.last_object_created or 'Нет данных',
+                'last_object_modified': record_data.last_object_modified or 'Нет данных',
+                'a_ouid': record_data.a_ouid or 'Нет данных',
+                'base_url': record_data.base_url or ''
             }
             
             # Добавляем дополнительную проверку на None
@@ -3223,8 +3229,27 @@ def init_routes(app):
                 'folder_paths': record_data.folder_paths or 'Нет данных',
                 'object_count': record_data.object_count or 'Нет данных',
                 'last_object_created': record_data.last_object_created or 'Нет данных',
-                'last_object_modified': record_data.last_object_modified or 'Нет данных'
+                'last_object_modified': record_data.last_object_modified or 'Нет данных',
+                'a_ouid': record_data.a_ouid or 'Нет данных',
+                'base_url': record_data.base_url or ''
             }
+            
+            # Создаем HTML для ссылок
+            links_html = ""
+            if details['base_url']:
+                if details['a_ouid'] and details['a_ouid'] != 'Нет данных':
+                    object_url = f"{details['base_url']}admin/edit.htm?id={details['a_ouid']}%40SXClass"
+                    links_html += f"""
+                    <div><a href="{object_url}" target="_blank" class="btn btn-sm btn-outline-primary mt-1">
+                        <i class="bi bi-box-arrow-up-right"></i> Перейти к объекту</a></div>
+                    """
+                
+                if details['mssql_sxclass_name'] and details['mssql_sxclass_name'] != 'Нет данных':
+                    class_objects_url = f"{details['base_url']}objectsofclass.htm?cls={details['mssql_sxclass_name']}"
+                    links_html += f"""
+                    <div><a href="{class_objects_url}" target="_blank" class="btn btn-sm btn-outline-info mt-1">
+                        <i class="bi bi-boxes"></i> Объекты класса</a></div>
+                    """
             
             # Генерируем HTML для отображения данных
             html = f"""
@@ -3238,6 +3263,11 @@ def init_routes(app):
                     .details-row {{ display: flex; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px dotted #eee; }}
                     .details-label {{ flex: 0 0 45%; font-weight: 600; color: #495057; padding-right: 10px; }}
                     .details-value {{ flex: 0 0 55%; word-break: break-word; color: #212529; }}
+                    .btn {{ padding: 3px 8px; font-size: 12px; margin-right: 5px; text-decoration: none; display: inline-block; margin-bottom: 4px; border-radius: 3px; border-width: 1px; border-style: solid; }}
+                    .btn-outline-primary {{ color: #007bff; border-color: #007bff; }}
+                    .btn-outline-primary:hover {{ color: #fff; background-color: #007bff; }}
+                    .btn-outline-info {{ color: #17a2b8; border-color: #17a2b8; }}
+                    .btn-outline-info:hover {{ color: #fff; background-color: #17a2b8; }}
                 </style>
             </head>
             <body>
@@ -3293,15 +3323,27 @@ def init_routes(app):
                         <div class="details-label">Дата последнего изменения:</div>
                         <div class="details-value">{details['last_object_modified']}</div>
                     </div>
+                    
+                    {f'''
+                    <div class="details-row">
+                        <div class="details-label">Ссылки:</div>
+                        <div class="details-value">
+                            {links_html}
+                        </div>
+                    </div>
+                    ''' if links_html else ''}
                 </div>
                 
                 <h2>Исходные данные из API:</h2>
                 <pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; overflow: auto;">
-                {{
-                    "success": true,
-                    "details": {json.dumps(details, indent=4, ensure_ascii=False)}
-                }}
+                {str(details)}
                 </pre>
+                
+                <p>
+                    <a href="/analysis_results?batch_id={analysis_result.batch_id}" class="btn btn-outline-primary">
+                        Вернуться к результатам анализа
+                    </a>
+                </p>
             </body>
             </html>
             """
