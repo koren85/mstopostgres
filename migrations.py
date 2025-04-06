@@ -16,6 +16,9 @@ def run_migrations():
             # Выполняем миграцию для изменения типов данных в таблице analysis_data
             migrate_analysis_data_columns(conn)
             
+            # Выполняем миграцию для добавления столбца base_url в таблицу analysis_data
+            add_base_url_column(conn)
+            
             # Фиксируем транзакцию
             trans.commit()
             
@@ -63,6 +66,38 @@ def migrate_analysis_data_columns(connection):
         logging.info(f"Миграция {migration_key} успешно применена")
     except Exception as e:
         logging.error(f"Ошибка при выполнении миграции для изменения типов данных: {str(e)}", exc_info=True)
+
+def add_base_url_column(connection):
+    """Миграция для добавления столбца base_url в таблицу analysis_data"""
+    try:
+        # Проверяем, нужно ли выполнять миграцию
+        migration_key = 'add_base_url_column'
+        if is_migration_applied(connection, migration_key):
+            logging.info(f"Миграция {migration_key} уже применена")
+            return
+        
+        logging.info("Выполняется миграция для добавления столбца base_url в таблицу analysis_data...")
+        
+        # Проверяем существование столбца
+        result = connection.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns 
+                WHERE table_name = 'analysis_data' AND column_name = 'base_url'
+            )
+        """))
+        
+        if not result.scalar():
+            # Добавляем столбец base_url, если его нет
+            connection.execute(text("ALTER TABLE analysis_data ADD COLUMN base_url VARCHAR(255)"))
+            logging.info("Столбец base_url успешно добавлен в таблицу analysis_data")
+        else:
+            logging.info("Столбец base_url уже существует в таблице analysis_data")
+        
+        # Отмечаем миграцию как выполненную
+        mark_migration_as_applied(connection, migration_key)
+        logging.info(f"Миграция {migration_key} успешно применена")
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении столбца base_url: {str(e)}", exc_info=True)
 
 def is_migration_applied(connection, migration_key):
     """Проверяет, была ли применена миграция с указанным ключом"""

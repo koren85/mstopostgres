@@ -30,4 +30,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 5001
 
-CMD ["python", "app.py"] 
+# Устанавливаем права на выполнение entrypoint скрипта
+RUN chmod +x /app/docker-entrypoint.sh
+
+CMD ["/app/docker-entrypoint.sh"] 
