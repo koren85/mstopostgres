@@ -252,6 +252,9 @@
                                 <button class="btn btn-sm btn-success save-priznak" data-id="{{ result.id }}">
                                     Сохранить
                                 </button>
+                                <button class="btn btn-sm btn-warning apply-to-all-classes" data-id="{{ result.id }}" title="Применить значение признака ко всем классам с таким же именем">
+                                    <i class="bi bi-arrow-repeat"></i> Глобально
+                                </button>
                                 {% if result.status == 'analyzed' %}
                                 <button class="btn btn-sm btn-primary confirm-result" data-id="{{ result.id }}">
                                     Подтвердить
@@ -1335,6 +1338,95 @@ document.getElementById('createRuleFromSelected').addEventListener('click', func
     // Открываем модальное окно
     const modal = new bootstrap.Modal(document.getElementById('createRuleModal'));
     modal.show();
+});
+
+// Обработчик кнопки для применения признака ко всем классам с таким же именем
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Инициализация обработчиков...');
+
+    // Обработчик для кнопки "Глобально"
+    const globalButtons = document.querySelectorAll('.apply-to-all-classes');
+    console.log('Найдено кнопок "Глобально":', globalButtons.length);
+
+    globalButtons.forEach(button => {
+        button.addEventListener('click', async function(e) {
+            e.preventDefault();
+            console.log('Клик по кнопке "Глобально"');
+            
+            const resultId = this.dataset.id;
+            console.log('ID результата:', resultId);
+            
+            const select = document.querySelector(`.priznak-select[data-id="${resultId}"]`);
+            console.log('Найден select:', select);
+            
+            const selectedPriznak = select ? select.value : null;
+            console.log('Выбранное значение признака:', selectedPriznak);
+            
+            if (!selectedPriznak) {
+                alert('Сначала выберите значение признака!');
+                return;
+            }
+            
+            if (!confirm(`Вы уверены, что хотите применить значение "${selectedPriznak}" ко всем классам с таким же именем во всех батчах анализа?`)) {
+                return;
+            }
+            
+            // Показываем индикатор загрузки
+            button.disabled = true;
+            const originalContent = button.innerHTML;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Применение...';
+            
+            // Сначала сохраняем значение для текущей записи
+            fetch(`/api/update_priznak/${resultId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ priznak: selectedPriznak })
+            })
+            .then(response => {
+                console.log('Ответ от первого API:', response);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Данные от первого API:', data);
+                if (data.success) {
+                    // Затем применяем значение ко всем классам
+                    return fetch('/api/update_priznak_all_classes', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ result_id: resultId })
+                    });
+                } else {
+                    throw new Error('Ошибка при сохранении: ' + data.error);
+                }
+            })
+            .then(response => {
+                console.log('Ответ от второго API:', response);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Данные от второго API:', data);
+                if (data.success) {
+                    alert(`Успешно! ${data.message}`);
+                    location.reload();
+                } else {
+                    throw new Error('Ошибка при применении: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка: ' + error.message);
+            })
+            .finally(() => {
+                // Восстанавливаем кнопку
+                button.disabled = false;
+                button.innerHTML = originalContent;
+            });
+        });
+    });
 });
 </script>
 

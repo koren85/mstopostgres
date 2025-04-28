@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Корректировка признаков</h2>
+    
+    <!-- Форма коррекции признаков -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="correctPriznakForm">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="className" class="form-label">Имя класса</label>
+                            <input type="text" class="form-control" id="className" placeholder="Введите имя класса" required>
+                            <div class="form-text">Введите точное имя класса, для которого нужно изменить признак</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="priznakValue" class="form-label">Значение признака</label>
+                            <select class="form-select" id="priznakValue" required>
+                                <option value="">Выберите значение признака</option>
+                                {% for priznak in priznaks %}
+                                <option value="{{ priznak }}">{{ priznak }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" id="applyPriznakBtn">
+                    <i class="bi bi-check2-all"></i> Применить ко всем записям класса
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Результаты операции -->
+    <div class="card mb-4 d-none" id="resultsCard">
+        <div class="card-header">
+            Результаты операции
+        </div>
+        <div class="card-body">
+            <p id="resultsMessage"></p>
+            <div class="mt-2">
+                <span class="badge bg-primary" id="totalUpdated">Всего обновлено: 0</span>
+                <span class="badge bg-info" id="analysisResults">Обновлено записей анализа: 0</span>
+                <span class="badge bg-info" id="migrationClasses">Обновлено записей миграции: 0</span>
+                <span class="badge bg-info" id="analysisData">Обновлено записей данных: 0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- История операций -->
+    <div class="card">
+        <div class="card-header">
+            История операций
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Дата и время</th>
+                            <th>Имя класса</th>
+                            <th>Применено значение</th>
+                            <th>Обновлено записей</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTable">
+                        {% for item in history %}
+                        <tr>
+                            <td>{{ item.timestamp }}</td>
+                            <td>{{ item.class_name }}</td>
+                            <td>{{ item.priznak }}</td>
+                            <td>{{ item.updated_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const correctPriznakForm = document.getElementById('correctPriznakForm');
+    const resultsCard = document.getElementById('resultsCard');
+    const resultsMessage = document.getElementById('resultsMessage');
+    const totalUpdated = document.getElementById('totalUpdated');
+    const analysisResults = document.getElementById('analysisResults');
+    const migrationClasses = document.getElementById('migrationClasses');
+    const analysisData = document.getElementById('analysisData');
+    const historyTable = document.getElementById('historyTable');
+
+    correctPriznakForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const className = document.getElementById('className').value.trim();
+        const priznakValue = document.getElementById('priznakValue').value;
+        
+        if (!className || !priznakValue) {
+            alert('Пожалуйста, заполните все поля');
+            return;
+        }
+        
+        if (!confirm(`Вы уверены, что хотите применить значение "${priznakValue}" ко всем записям класса "${className}" во всех батчах анализа?`)) {
+            return;
+        }
+        
+        const applyBtn = document.getElementById('applyPriznakBtn');
+        const originalBtnContent = applyBtn.innerHTML;
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Применение...';
+        
+        // Отправляем запрос на применение признака ко всем классам
+        fetch('/api/update_priznak_by_class_name', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                class_name: className,
+                priznak: priznakValue
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = originalBtnContent;
+            
+            if (data.success) {
+                // Отображаем результаты
+                resultsCard.classList.remove('d-none');
+                resultsMessage.textContent = data.message;
+                
+                totalUpdated.textContent = `Всего обновлено: ${data.updated_count}`;
+                analysisResults.textContent = `Обновлено записей анализа: ${data.updated_analysis_results}`;
+                migrationClasses.textContent = `Обновлено записей миграции: ${data.updated_migration_classes}`;
+                analysisData.textContent = `Обновлено записей данных: ${data.updated_analysis_data}`;
+                
+                // Добавляем запись в историю
+                const now = new Date();
+                const timestamp = now.toLocaleString('ru-RU');
+                
+                const newRow = document.createElement('tr');
+                newRow.innerHTML = `
+                    <td>${timestamp}</td>
+                    <td>${className}</td>
+                    <td>${priznakValue}</td>
+                    <td>${data.updated_count}</td>
+                `;
+                
+                if (historyTable.firstChild) {
+                    historyTable.insertBefore(newRow, historyTable.firstChild);
+                } else {
+                    historyTable.appendChild(newRow);
+                }
+            } else {
+                alert('Ошибка: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            alert('Произошла ошибка при выполнении операции');
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = originalBtnContent;
+        });
+    });
+});
+</script>
+{% endblock %} 

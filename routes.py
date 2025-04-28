@@ -3364,6 +3364,182 @@ def init_routes(app):
             </html>
             """
 
+    @app.route('/api/update_priznak_all_classes', methods=['POST'])
+    def update_priznak_all_classes():
+        """
+        Применяет текущее значение признака ко всем записям с таким же именем класса во всех батчах анализа
+        """
+        try:
+            data = request.get_json()
+            result_id = data.get('result_id')
+            
+            if not result_id:
+                return jsonify({
+                    'success': False,
+                    'error': 'Не указан ID записи'
+                }), 400
+            
+            # Получаем запись, с которой будем работать
+            source_result = AnalysisResult.query.get_or_404(result_id)
+            class_name = source_result.mssql_sxclass_name
+            priznak_value = source_result.priznak
+            
+            if not priznak_value:
+                return jsonify({
+                    'success': False,
+                    'error': 'В исходной записи не установлено значение признака'
+                }), 400
+            
+            # Обновляем записи в AnalysisResult с таким же именем класса
+            update_result = AnalysisResult.query.filter(
+                AnalysisResult.mssql_sxclass_name == class_name,
+                AnalysisResult.id != result_id  # Исключаем текущую запись
+            ).update({
+                'priznak': priznak_value,
+                'analyzed_by': 'global_update',
+                'status': 'analyzed',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            # Обновляем записи в MigrationClass с таким же именем класса
+            migration_update = MigrationClass.query.filter(
+                MigrationClass.mssql_sxclass_name == class_name
+            ).update({
+                'priznak': priznak_value,
+                'classified_by': 'global_update',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            # Обновляем записи в AnalysisData с таким же именем класса
+            analysis_data_update = AnalysisData.query.filter(
+                AnalysisData.mssql_sxclass_name == class_name
+            ).update({
+                'priznak': priznak_value,
+                'classified_by': 'global_update',
+                'analysis_state': 'analyzed',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            db.session.commit()
+            
+            # Подсчитываем общее количество обновленных записей
+            total_updated = update_result + migration_update + analysis_data_update
+            
+            return jsonify({
+                'success': True,
+                'message': f'Значение признака "{priznak_value}" применено ко всем записям класса "{class_name}"',
+                'updated_count': total_updated,
+                'updated_analysis_results': update_result,
+                'updated_migration_classes': migration_update,
+                'updated_analysis_data': analysis_data_update
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при обновлении всех записей класса: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/correct_priznaks')
+    def correct_priznaks():
+        """
+        Страница для коррекции признаков по имени класса
+        """
+        # Получаем список уникальных значений признаков
+        priznaks = db.session.query(AnalysisResult.priznak)\
+                            .filter(AnalysisResult.priznak.isnot(None))\
+                            .distinct()\
+                            .order_by(AnalysisResult.priznak)\
+                            .all()
+        priznaks = [p[0] for p in priznaks if p[0]]
+        
+        # Тут можно добавить историю обновлений, если есть такая таблица
+        history = []
+        
+        return render_template('correct_priznaks.html', 
+                              priznaks=priznaks,
+                              history=history)
+    
+    @app.route('/api/update_priznak_by_class_name', methods=['POST'])
+    def update_priznak_by_class_name():
+        """
+        Применяет значение признака ко всем записям с указанным именем класса во всех батчах анализа
+        """
+        try:
+            data = request.get_json()
+            class_name = data.get('class_name')
+            priznak_value = data.get('priznak')
+            
+            if not class_name:
+                return jsonify({
+                    'success': False,
+                    'error': 'Не указано имя класса'
+                }), 400
+                
+            if not priznak_value:
+                return jsonify({
+                    'success': False,
+                    'error': 'Не указано значение признака'
+                }), 400
+            
+            # Проверяем существование класса
+            exists = db.session.query(
+                db.exists().where(AnalysisResult.mssql_sxclass_name == class_name)
+            ).scalar()
+            
+            if not exists:
+                return jsonify({
+                    'success': False,
+                    'error': f'Класс с именем "{class_name}" не найден'
+                }), 404
+            
+            # Обновляем записи в AnalysisResult с таким же именем класса
+            update_result = AnalysisResult.query.filter(
+                AnalysisResult.mssql_sxclass_name == class_name
+            ).update({
+                'priznak': priznak_value,
+                'analyzed_by': 'global_update',
+                'status': 'analyzed',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            # Обновляем записи в MigrationClass с таким же именем класса
+            migration_update = MigrationClass.query.filter(
+                MigrationClass.mssql_sxclass_name == class_name
+            ).update({
+                'priznak': priznak_value,
+                'classified_by': 'global_update',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            # Обновляем записи в AnalysisData с таким же именем класса
+            analysis_data_update = AnalysisData.query.filter(
+                AnalysisData.mssql_sxclass_name == class_name
+            ).update({
+                'priznak': priznak_value,
+                'classified_by': 'global_update',
+                'analysis_state': 'analyzed',
+                'confidence_score': 1.0
+            }, synchronize_session=False)
+            
+            db.session.commit()
+            
+            # Подсчитываем общее количество обновленных записей
+            total_updated = update_result + migration_update + analysis_data_update
+            
+            return jsonify({
+                'success': True,
+                'message': f'Значение признака "{priznak_value}" применено ко всем записям класса "{class_name}"',
+                'updated_count': total_updated,
+                'updated_analysis_results': update_result,
+                'updated_migration_classes': migration_update,
+                'updated_analysis_data': analysis_data_update
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при обновлении всех записей класса: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
 def apply_rule_to_record(rule, record):
     """
     Применяет правило к записи и проверяет, соответствует ли она правилу
