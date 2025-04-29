@@ -8,12 +8,38 @@
     <div class="card mb-4">
         <div class="card-body">
             <form id="correctPriznakForm">
+                <div class="mb-3">
+                    <div class="btn-group w-100" role="group">
+                        <input type="radio" class="btn-check" name="searchType" id="searchByClassName" value="className" checked>
+                        <label class="btn btn-outline-primary" for="searchByClassName">Поиск по имени класса</label>
+                        
+                        <input type="radio" class="btn-check" name="searchType" id="searchByTableName" value="tableName">
+                        <label class="btn btn-outline-primary" for="searchByTableName">Поиск по таблице</label>
+                    </div>
+                </div>
+                
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <div class="mb-3">
+                        <div class="mb-3" id="classNameBlock">
                             <label for="className" class="form-label">Имя класса</label>
-                            <input type="text" class="form-control" id="className" placeholder="Введите имя класса" required>
+                            <input type="text" class="form-control" id="className" list="classesList" placeholder="Введите имя класса" required>
+                            <datalist id="classesList">
+                                {% for class_name in class_names %}
+                                <option value="{{ class_name }}">
+                                {% endfor %}
+                            </datalist>
                             <div class="form-text">Введите точное имя класса, для которого нужно изменить признак</div>
+                        </div>
+                        
+                        <div class="mb-3 d-none" id="tableNameBlock">
+                            <label for="tableName" class="form-label">Имя таблицы</label>
+                            <input type="text" class="form-control" id="tableName" list="tablesList" placeholder="Введите имя таблицы">
+                            <datalist id="tablesList">
+                                {% for table in tables %}
+                                <option value="{{ table }}">
+                                {% endfor %}
+                            </datalist>
+                            <div class="form-text">Введите точное имя таблицы, для которой нужно изменить признак</div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -30,6 +56,9 @@
                 </div>
                 <button type="submit" class="btn btn-primary" id="applyPriznakBtn">
                     <i class="bi bi-check2-all"></i> Применить ко всем записям класса
+                </button>
+                <button type="button" class="btn btn-secondary" id="clearFormBtn">
+                    <i class="bi bi-x-circle"></i> Очистить форму
                 </button>
             </form>
         </div>
@@ -62,6 +91,8 @@
                     <thead>
                         <tr>
                             <th>Дата и время</th>
+                            <th>Тип поиска</th>
+                            <th>Поисковый запрос</th>
                             <th>Имя класса</th>
                             <th>Применено значение</th>
                             <th>Обновлено записей</th>
@@ -70,10 +101,17 @@
                     <tbody id="historyTable">
                         {% for item in history %}
                         <tr>
-                            <td>{{ item.timestamp }}</td>
+                            <td>{{ item.timestamp.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                            <td>{{ 'По имени класса' if item.search_type == 'class_name' else 'По таблице' }}</td>
+                            <td>{{ item.search_value }}</td>
                             <td>{{ item.class_name }}</td>
                             <td>{{ item.priznak }}</td>
-                            <td>{{ item.updated_count }}</td>
+                            <td>
+                                <span class="badge bg-primary">Всего: {{ item.updated_count }}</span>
+                                <span class="badge bg-info">Анализ: {{ item.updated_analysis_results }}</span>
+                                <span class="badge bg-info">Миграция: {{ item.updated_migration_classes }}</span>
+                                <span class="badge bg-info">Данные: {{ item.updated_analysis_data }}</span>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -93,19 +131,66 @@ document.addEventListener('DOMContentLoaded', function() {
     const migrationClasses = document.getElementById('migrationClasses');
     const analysisData = document.getElementById('analysisData');
     const historyTable = document.getElementById('historyTable');
+    
+    // Переключение между полями поиска
+    const searchTypeRadios = document.querySelectorAll('input[name="searchType"]');
+    const classNameBlock = document.getElementById('classNameBlock');
+    const tableNameBlock = document.getElementById('tableNameBlock');
+    
+    // Очистка формы
+    document.getElementById('clearFormBtn').addEventListener('click', function() {
+        document.getElementById('className').value = '';
+        document.getElementById('tableName').value = '';
+        document.getElementById('priznakValue').value = '';
+        resultsCard.classList.add('d-none');
+    });
+    
+    searchTypeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.value === 'className') {
+                classNameBlock.classList.remove('d-none');
+                tableNameBlock.classList.add('d-none');
+                document.getElementById('tableName').removeAttribute('required');
+                document.getElementById('className').setAttribute('required', '');
+            } else if (this.value === 'tableName') {
+                classNameBlock.classList.add('d-none');
+                tableNameBlock.classList.remove('d-none');
+                document.getElementById('className').removeAttribute('required');
+                document.getElementById('tableName').setAttribute('required', '');
+            }
+        });
+    });
 
     correctPriznakForm.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        const className = document.getElementById('className').value.trim();
+        const searchType = document.querySelector('input[name="searchType"]:checked').value;
+        let searchValue = '';
+        let searchField = '';
+        
+        if (searchType === 'className') {
+            searchValue = document.getElementById('className').value.trim();
+            searchField = 'class_name';
+        } else {
+            searchValue = document.getElementById('tableName').value.trim();
+            searchField = 'table_name';
+        }
+        
         const priznakValue = document.getElementById('priznakValue').value;
         
-        if (!className || !priznakValue) {
+        if (!searchValue || !priznakValue) {
             alert('Пожалуйста, заполните все поля');
             return;
         }
         
-        if (!confirm(`Вы уверены, что хотите применить значение "${priznakValue}" ко всем записям класса "${className}" во всех батчах анализа?`)) {
+        let confirmMessage = '';
+        if (searchType === 'className') {
+            confirmMessage = `Вы уверены, что хотите применить значение "${priznakValue}" ко всем записям класса "${searchValue}" во всех батчах анализа?`;
+        } else {
+            confirmMessage = `Вы уверены, что хотите применить значение "${priznakValue}" ко всем записям таблицы "${searchValue}" во всех батчах анализа?`;
+        }
+        
+        if (!confirm(confirmMessage)) {
             return;
         }
         
@@ -114,14 +199,15 @@ document.addEventListener('DOMContentLoaded', function() {
         applyBtn.disabled = true;
         applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Применение...';
         
-        // Отправляем запрос на применение признака ко всем классам
+        // Отправляем запрос на применение признака ко всем классам/таблицам
         fetch('/api/update_priznak_by_class_name', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                class_name: className,
+                search_field: searchField,
+                search_value: searchValue,
                 priznak: priznakValue
             })
         })
@@ -143,13 +229,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Добавляем запись в историю
                 const now = new Date();
                 const timestamp = now.toLocaleString('ru-RU');
+                const searchLabel = searchType === 'className' ? 'По имени класса' : 'По таблице';
                 
                 const newRow = document.createElement('tr');
                 newRow.innerHTML = `
                     <td>${timestamp}</td>
-                    <td>${className}</td>
+                    <td>${searchLabel}</td>
+                    <td>${searchValue}</td>
+                    <td>${data.affected_class_name || (searchType === 'className' ? searchValue : 'Разные классы')}</td>
                     <td>${priznakValue}</td>
-                    <td>${data.updated_count}</td>
+                    <td>
+                        <span class="badge bg-primary">Всего: ${data.updated_count}</span>
+                        <span class="badge bg-info">Анализ: ${data.updated_analysis_results}</span>
+                        <span class="badge bg-info">Миграция: ${data.updated_migration_classes}</span>
+                        <span class="badge bg-info">Данные: ${data.updated_analysis_data}</span>
+                    </td>
                 `;
                 
                 if (historyTable.firstChild) {

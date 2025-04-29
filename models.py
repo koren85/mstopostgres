@@ -132,3 +132,22 @@ class TransferRule(db.Model):
     
     def __repr__(self):
         return f'<TransferRule {self.id}: {self.category_name} - {self.transfer_action}>'
+
+class PriznakCorrectionHistory(db.Model):
+    """История корректировок признаков"""
+    __tablename__ = 'priznak_correction_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    search_type = db.Column(db.String(20), nullable=False)  # 'class_name' или 'table_name'
+    search_value = db.Column(db.String(255), nullable=False)  # значение, которое использовалось для поиска
+    class_name = db.Column(db.String(255))  # имя класса или классов
+    priznak = db.Column(db.String(50), nullable=False)  # значение признака
+    updated_analysis_results = db.Column(db.Integer)  # количество обновленных записей в AnalysisResult
+    updated_migration_classes = db.Column(db.Integer)  # количество обновленных записей в MigrationClass
+    updated_analysis_data = db.Column(db.Integer)  # количество обновленных записей в AnalysisData
+    updated_count = db.Column(db.Integer)  # общее количество обновленных записей
+    user = db.Column(db.String(100))  # пользователь, выполнивший операцию
+    
+    def __repr__(self):
+        return f'<PriznakCorrectionHistory {self.id}: {self.search_type}={self.search_value}, priznak={self.priznak}>'

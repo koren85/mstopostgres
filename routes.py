@@ -5,7 +5,7 @@ import logging
 import pandas as pd
 import json
 from database import db
-from models import MigrationClass, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule
+from models import MigrationClass, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule, PriznakCorrectionHistory
 from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
 from classification import classify_record, export_batch_results, apply_transfer_rules
 from sqlalchemy import func, case
@@ -3452,27 +3452,61 @@ def init_routes(app):
                             .all()
         priznaks = [p[0] for p in priznaks if p[0]]
         
-        # Тут можно добавить историю обновлений, если есть такая таблица
-        history = []
+        # Получаем список уникальных имен таблиц из MigrationClass
+        migration_tables = db.session.query(MigrationClass.mssql_sxclass_map)\
+                                   .filter(MigrationClass.mssql_sxclass_map.isnot(None))\
+                                   .distinct()\
+                                   .order_by(MigrationClass.mssql_sxclass_map)\
+                                   .all()
+        migration_tables = [t[0] for t in migration_tables if t[0]]
+        
+        # Также получаем таблицы из AnalysisData
+        analysis_tables = db.session.query(AnalysisData.mssql_sxclass_map)\
+                                   .filter(AnalysisData.mssql_sxclass_map.isnot(None))\
+                                   .distinct()\
+                                   .order_by(AnalysisData.mssql_sxclass_map)\
+                                   .all()
+        analysis_tables = [t[0] for t in analysis_tables if t[0]]
+        
+        # Дополняем список таблиц именами классов, так как они часто совпадают с именами таблиц
+        class_names = db.session.query(AnalysisResult.mssql_sxclass_name)\
+                               .filter(AnalysisResult.mssql_sxclass_name.isnot(None))\
+                               .distinct()\
+                               .order_by(AnalysisResult.mssql_sxclass_name)\
+                               .all()
+        class_names_list = [c[0] for c in class_names if c[0]]
+        
+        # Объединяем все списки и удаляем дубликаты
+        tables = list(set(migration_tables + analysis_tables + class_names_list))
+        tables.sort()
+        
+        # Получаем историю корректировок из базы данных
+        history = PriznakCorrectionHistory.query\
+                 .order_by(PriznakCorrectionHistory.timestamp.desc())\
+                 .limit(50)\
+                 .all()
         
         return render_template('correct_priznaks.html', 
                               priznaks=priznaks,
+                              tables=tables,
+                              class_names=class_names_list,
                               history=history)
     
     @app.route('/api/update_priznak_by_class_name', methods=['POST'])
     def update_priznak_by_class_name():
         """
-        Применяет значение признака ко всем записям с указанным именем класса во всех батчах анализа
+        Применяет значение признака ко всем записям с указанным именем класса или таблицы во всех батчах анализа
         """
         try:
             data = request.get_json()
-            class_name = data.get('class_name')
+            search_field = data.get('search_field', 'class_name')
+            search_value = data.get('search_value')
             priznak_value = data.get('priznak')
             
-            if not class_name:
+            if not search_value:
                 return jsonify({
                     'success': False,
-                    'error': 'Не указано имя класса'
+                    'error': 'Не указано значение для поиска'
                 }), 400
                 
             if not priznak_value:
@@ -3481,20 +3515,101 @@ def init_routes(app):
                     'error': 'Не указано значение признака'
                 }), 400
             
-            # Проверяем существование класса
-            exists = db.session.query(
-                db.exists().where(AnalysisResult.mssql_sxclass_name == class_name)
-            ).scalar()
+            # Определяем фильтр в зависимости от типа поиска
+            if search_field == 'class_name':
+                # Поиск по имени класса
+                filter_condition_result = AnalysisResult.mssql_sxclass_name == search_value
+                filter_condition_migration = MigrationClass.mssql_sxclass_name == search_value
+                filter_condition_analysis_data = AnalysisData.mssql_sxclass_name == search_value
+                
+                # Проверяем существование класса
+                exists = db.session.query(
+                    db.exists().where(filter_condition_result)
+                ).scalar()
+                
+                error_message = f'Класс с именем "{search_value}" не найден'
+                message_success = f'Значение признака "{priznak_value}" применено ко всем записям класса "{search_value}"'
+                affected_class_name = search_value
+                
+            elif search_field == 'table_name':
+                # Поиск по имени таблицы - используем mssql_sxclass_map
+                # В AnalysisResult нет поля mssql_sxclass_map, поэтому сначала получаем 
+                # имена классов из MigrationClass и AnalysisData
+                
+                # Получаем имена классов из MigrationClass
+                class_names_query = db.session.query(MigrationClass.mssql_sxclass_name)\
+                                             .filter(MigrationClass.mssql_sxclass_map == search_value)\
+                                             .distinct()\
+                                             .all()
+                
+                # Если не нашли, ищем в AnalysisData
+                if not class_names_query:
+                    class_names_query = db.session.query(AnalysisData.mssql_sxclass_name)\
+                                                 .filter(AnalysisData.mssql_sxclass_map == search_value)\
+                                                 .distinct()\
+                                                 .all()
+                
+                # Если все еще не нашли, проверяем совпадение mssql_sxclass_name с именем таблицы
+                if not class_names_query:
+                    # Ищем классы в MigrationClass с именем как таблица
+                    class_names_query = db.session.query(MigrationClass.mssql_sxclass_name)\
+                                                 .filter(MigrationClass.mssql_sxclass_name == search_value)\
+                                                 .distinct()\
+                                                 .all()
+                
+                # Если все еще не нашли, ищем в AnalysisData
+                if not class_names_query:
+                    # Ищем классы в AnalysisData с именем как таблица
+                    class_names_query = db.session.query(AnalysisData.mssql_sxclass_name)\
+                                                 .filter(AnalysisData.mssql_sxclass_name == search_value)\
+                                                 .distinct()\
+                                                 .all()
+                
+                # Если все еще не нашли, ищем в AnalysisResult
+                if not class_names_query:
+                    # Ищем классы в AnalysisResult с именем как таблица
+                    class_names_query = db.session.query(AnalysisResult.mssql_sxclass_name)\
+                                                 .filter(AnalysisResult.mssql_sxclass_name == search_value)\
+                                                 .distinct()\
+                                                 .all()
+                
+                if not class_names_query:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Таблица с именем "{search_value}" не найдена или не связана ни с одним классом'
+                    }), 404
+                
+                # Получаем имена классов
+                class_names = [row[0] for row in class_names_query]
+                
+                # Создаем фильтр для AnalysisResult по именам классов
+                filter_condition_result = AnalysisResult.mssql_sxclass_name.in_(class_names)
+                filter_condition_migration = MigrationClass.mssql_sxclass_name.in_(class_names)
+                filter_condition_analysis_data = AnalysisData.mssql_sxclass_name.in_(class_names)
+                
+                exists = True  # Мы уже проверили существование выше
+                error_message = f'Таблица с именем "{search_value}" не найдена'
+                message_success = f'Значение признака "{priznak_value}" применено ко всем записям таблицы "{search_value}"'
+                
+                if len(class_names) == 1:
+                    affected_class_name = class_names[0]
+                else:
+                    affected_class_name = f"Разные классы ({len(class_names)})"
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Неверный тип поиска'
+                }), 400
             
             if not exists:
                 return jsonify({
                     'success': False,
-                    'error': f'Класс с именем "{class_name}" не найден'
+                    'error': error_message
                 }), 404
             
-            # Обновляем записи в AnalysisResult с таким же именем класса
+            # Обновляем записи в AnalysisResult
             update_result = AnalysisResult.query.filter(
-                AnalysisResult.mssql_sxclass_name == class_name
+                filter_condition_result
             ).update({
                 'priznak': priznak_value,
                 'analyzed_by': 'global_update',
@@ -3502,18 +3617,18 @@ def init_routes(app):
                 'confidence_score': 1.0
             }, synchronize_session=False)
             
-            # Обновляем записи в MigrationClass с таким же именем класса
+            # Обновляем записи в MigrationClass
             migration_update = MigrationClass.query.filter(
-                MigrationClass.mssql_sxclass_name == class_name
+                filter_condition_migration
             ).update({
                 'priznak': priznak_value,
                 'classified_by': 'global_update',
                 'confidence_score': 1.0
             }, synchronize_session=False)
             
-            # Обновляем записи в AnalysisData с таким же именем класса
+            # Обновляем записи в AnalysisData
             analysis_data_update = AnalysisData.query.filter(
-                AnalysisData.mssql_sxclass_name == class_name
+                filter_condition_analysis_data
             ).update({
                 'priznak': priznak_value,
                 'classified_by': 'global_update',
@@ -3526,18 +3641,34 @@ def init_routes(app):
             # Подсчитываем общее количество обновленных записей
             total_updated = update_result + migration_update + analysis_data_update
             
+            # Сохраняем историю корректировки
+            history_entry = PriznakCorrectionHistory(
+                search_type=search_field,
+                search_value=search_value,
+                class_name=affected_class_name,
+                priznak=priznak_value,
+                updated_analysis_results=update_result,
+                updated_migration_classes=migration_update,
+                updated_analysis_data=analysis_data_update,
+                updated_count=total_updated,
+                user="system"  # можно добавить идентификацию пользователей в будущем
+            )
+            db.session.add(history_entry)
+            db.session.commit()
+            
             return jsonify({
                 'success': True,
-                'message': f'Значение признака "{priznak_value}" применено ко всем записям класса "{class_name}"',
+                'message': message_success,
                 'updated_count': total_updated,
                 'updated_analysis_results': update_result,
                 'updated_migration_classes': migration_update,
-                'updated_analysis_data': analysis_data_update
+                'updated_analysis_data': analysis_data_update,
+                'affected_class_name': affected_class_name
             })
             
         except Exception as e:
             db.session.rollback()
-            logging.error(f"Ошибка при обновлении всех записей класса: {str(e)}", exc_info=True)
+            logging.error(f"Ошибка при обновлении записей: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
 def apply_rule_to_record(rule, record):
