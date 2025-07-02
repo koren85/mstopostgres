@@ -103,4 +103,14 @@ canvas {
     background-color: #343a40;
     border-radius: 0.25rem;
     padding: 1rem;
+}
+
+/* Переопределяем Bootstrap container, чтобы занимал всю ширину экрана */
+.container,
+.container-sm,
+.container-md,
+.container-lg,
+.container-xl,
+.container-xxl {
+    max-width: 100% !important;
 } 
