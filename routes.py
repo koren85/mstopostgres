@@ -8,7 +8,8 @@ from database import db
 from models import MigrationClass, Discrepancy, AnalysisData, FieldMapping, AnalysisResult, TransferRule, PriznakCorrectionHistory
 from utils import process_excel_file, analyze_discrepancies, get_batch_statistics
 from classification import classify_record, export_batch_results, apply_transfer_rules
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
+from sqlalchemy import Integer  # добавлено для кастинга batch_id
 from werkzeug.utils import secure_filename
 import os
 from io import BytesIO
@@ -376,7 +377,7 @@ def init_routes(app):
     def analysis():
         try:
             # Получаем все batch_id для анализа
-            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(AnalysisData.batch_id.desc()).all()
+            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(func.cast(AnalysisData.batch_id, Integer).desc()).all()
             batch_ids = [batch[0] for batch in batch_ids]
             
             # Получаем параметры пагинации
@@ -384,7 +385,7 @@ def init_routes(app):
             per_page = 20
             
             # Получаем данные анализа с пагинацией
-            query = AnalysisData.query.order_by(AnalysisData.batch_id.desc())
+            query = AnalysisData.query.order_by(func.cast(AnalysisData.batch_id, Integer).desc())
             pagination = query.paginate(page=page, per_page=per_page, error_out=False)
             
             # Получаем список батчей с информацией о прогрессе и результатах
@@ -989,7 +990,7 @@ def init_routes(app):
                 elif status_filter == 'discrepancies':
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
                 elif status_filter == 'analyzed_empty_priznak':
-                    query = query.filter(AnalysisResult.status == 'analyzed').filter((AnalysisResult.priznak == None) | (AnalysisResult.priznak == ''))
+                    query = query.filter(AnalysisResult.status == 'analyzed').filter(or_(AnalysisResult.priznak == None, AnalysisResult.priznak == ''))
                 else:
                     query = query.filter(AnalysisResult.status == status_filter)
             
@@ -1497,7 +1498,7 @@ def init_routes(app):
                 elif status_filter == 'discrepancies':
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
                 elif status_filter == 'analyzed_empty_priznak':
-                    query = query.filter(AnalysisResult.status == 'analyzed').filter((AnalysisResult.priznak == None) | (AnalysisResult.priznak == ''))
+                    query = query.filter(AnalysisResult.status == 'analyzed').filter(or_(AnalysisResult.priznak == None, AnalysisResult.priznak == ''))
                 else:
                     query = query.filter(AnalysisResult.status == status_filter)
             
