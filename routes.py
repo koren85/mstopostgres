@@ -377,8 +377,9 @@ def init_routes(app):
     def analysis():
         try:
             # Получаем все batch_id для анализа
-            batch_ids = db.session.query(AnalysisData.batch_id).distinct().order_by(func.cast(AnalysisData.batch_id, Integer).desc()).all()
-            batch_ids = [batch[0] for batch in batch_ids]
+            batch_ids = db.session.query(AnalysisData.batch_id).distinct().all()
+            # Сортируем в Python по числовому значению
+            batch_ids = sorted([batch[0] for batch in batch_ids], key=lambda x: int(x), reverse=True)
             
             # Получаем параметры пагинации
             page = request.args.get('page', 1, type=int)
