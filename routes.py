@@ -988,6 +988,8 @@ def init_routes(app):
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.is_(None))
                 elif status_filter == 'discrepancies':
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
+                elif status_filter == 'analyzed_empty_priznak':
+                    query = query.filter(AnalysisResult.status == 'analyzed').filter((AnalysisResult.priznak == None) | (AnalysisResult.priznak == ''))
                 else:
                     query = query.filter(AnalysisResult.status == status_filter)
             
@@ -1494,6 +1496,8 @@ def init_routes(app):
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.is_(None))
                 elif status_filter == 'discrepancies':
                     query = query.filter(AnalysisResult.status == 'pending', AnalysisResult.discrepancies.isnot(None))
+                elif status_filter == 'analyzed_empty_priznak':
+                    query = query.filter(AnalysisResult.status == 'analyzed').filter((AnalysisResult.priznak == None) | (AnalysisResult.priznak == ''))
                 else:
                     query = query.filter(AnalysisResult.status == status_filter)
             

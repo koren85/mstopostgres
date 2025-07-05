@@ -75,6 +75,7 @@
                         <option value="no_matches" {% if current_status == 'no_matches' %}selected{% endif %}>Не найдено в исторических данных</option>
                         <option value="discrepancies" {% if current_status == 'discrepancies' %}selected{% endif %}>Есть расхождения в признаках</option>
                         <option value="analyzed" {% if current_status == 'analyzed' %}selected{% endif %}>Проанализировано</option>
+                        <option value="analyzed_empty_priznak" {% if current_status == 'analyzed_empty_priznak' %}selected{% endif %}>Проанализировано (пустой признак)</option>
                         <option value="confirmed" {% if current_status == 'confirmed' %}selected{% endif %}>Подтверждено</option>
                     </select>
                 </div>
