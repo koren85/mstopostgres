@@ -80,6 +80,26 @@
         </div>
     </div>
 
+    <!-- Кнопка повторного применения всех корректировок -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Массовое повторное применение</h5>
+            <p class="card-text">
+                Повторно применить все корректировки из истории ко всем батчам. 
+                Полезно после загрузки новых данных.
+            </p>
+            {% set real_corrections = history|selectattr('search_type', 'ne', 'mass_reapply')|list %}
+            <button type="button" class="btn btn-warning" id="reapplyAllBtn" {% if real_corrections|length == 0 %}disabled{% endif %}>
+                <i class="bi bi-arrow-clockwise"></i> 
+                {% if real_corrections|length == 0 %}
+                    Нет корректировок для повторного применения
+                {% else %}
+                    Повторно применить все корректировки ({{ real_corrections|length }} операций)
+                {% endif %}
+            </button>
+        </div>
+    </div>
+
     <!-- История операций -->
     <div class="card">
         <div class="card-header">
@@ -260,6 +280,61 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Произошла ошибка при выполнении операции');
             applyBtn.disabled = false;
             applyBtn.innerHTML = originalBtnContent;
+        });
+    });
+
+    // Обработчик для кнопки повторного применения всех корректировок
+    document.getElementById('reapplyAllBtn').addEventListener('click', function() {
+        // Проверяем, что кнопка не отключена
+        if (this.disabled) {
+            return;
+        }
+        
+        if (!confirm('Вы уверены, что хотите повторно применить ВСЕ корректировки из истории ко всем батчам? Эта операция может занять время.')) {
+            return;
+        }
+        
+        const btn = this;
+        const originalContent = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Применение...';
+        
+        fetch('/api/reapply_all_corrections', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Показываем результаты
+                resultsCard.classList.remove('d-none');
+                resultsMessage.textContent = data.message;
+                totalUpdated.textContent = `Всего обновлено: ${data.total_updated}`;
+                analysisResults.textContent = `Обновлено записей анализа: ${data.details.updated_analysis_results}`;
+                migrationClasses.textContent = `Обновлено записей миграции: ${data.details.updated_migration_classes}`;
+                analysisData.textContent = `Обновлено записей данных: ${data.details.updated_analysis_data}`;
+                
+                // Показываем ошибки, если есть
+                if (data.details.errors.length > 0) {
+                    alert(`Операция завершена с ${data.details.errors.length} ошибками. Проверьте консоль для деталей.`);
+                    console.error('Ошибки при повторном применении:', data.details.errors);
+                }
+                
+                // Перезагружаем страницу через 3 секунды для обновления истории
+                setTimeout(() => location.reload(), 3000);
+            } else {
+                alert('Ошибка: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            alert('Произошла ошибка при выполнении операции');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalContent;
         });
     });
 });

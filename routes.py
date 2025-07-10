@@ -3677,6 +3677,158 @@ def init_routes(app):
             logging.error(f"Ошибка при обновлении записей: {str(e)}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
 
+    @app.route('/api/reapply_all_corrections', methods=['POST'])
+    def reapply_all_corrections():
+        """
+        Повторно применяет все корректировки из истории ко всем батчам
+        """
+        try:
+            # Получаем все записи из истории корректировок
+            corrections = PriznakCorrectionHistory.query.order_by(
+                PriznakCorrectionHistory.timestamp.asc()
+            ).all()
+            
+            total_reapplied = 0
+            results_summary = {
+                'total_corrections': len(corrections),
+                'updated_analysis_results': 0,
+                'updated_migration_classes': 0, 
+                'updated_analysis_data': 0,
+                'errors': []
+            }
+            
+            for correction in corrections:
+                try:
+                    # Пропускаем массовые повторные применения, чтобы избежать бесконечного цикла
+                    if correction.search_type == 'mass_reapply':
+                        continue
+                        
+                    # Повторно применяем каждую корректировку
+                    if correction.search_type == 'class_name':
+                        filter_condition_result = AnalysisResult.mssql_sxclass_name == correction.search_value
+                        filter_condition_migration = MigrationClass.mssql_sxclass_name == correction.search_value  
+                        filter_condition_analysis_data = AnalysisData.mssql_sxclass_name == correction.search_value
+                        
+                    elif correction.search_type == 'table_name':
+                        # Поиск по имени таблицы - сначала находим соответствующие классы
+                        class_names_query = db.session.query(MigrationClass.mssql_sxclass_name)\
+                                                     .filter(MigrationClass.mssql_sxclass_map == correction.search_value)\
+                                                     .distinct()\
+                                                     .all()
+                        
+                        # Если не нашли, ищем в AnalysisData
+                        if not class_names_query:
+                            class_names_query = db.session.query(AnalysisData.mssql_sxclass_name)\
+                                                         .filter(AnalysisData.mssql_sxclass_map == correction.search_value)\
+                                                         .distinct()\
+                                                         .all()
+                        
+                        # Если все еще не нашли, проверяем совпадение mssql_sxclass_name с именем таблицы
+                        if not class_names_query:
+                            class_names_query = db.session.query(MigrationClass.mssql_sxclass_name)\
+                                                         .filter(MigrationClass.mssql_sxclass_name == correction.search_value)\
+                                                         .distinct()\
+                                                         .all()
+                        
+                        if not class_names_query:
+                            class_names_query = db.session.query(AnalysisData.mssql_sxclass_name)\
+                                                         .filter(AnalysisData.mssql_sxclass_name == correction.search_value)\
+                                                         .distinct()\
+                                                         .all()
+                        
+                        if not class_names_query:
+                            class_names_query = db.session.query(AnalysisResult.mssql_sxclass_name)\
+                                                         .filter(AnalysisResult.mssql_sxclass_name == correction.search_value)\
+                                                         .distinct()\
+                                                         .all()
+                        
+                        if not class_names_query:
+                            results_summary['errors'].append({
+                                'correction_id': correction.id,
+                                'error': f'Таблица "{correction.search_value}" не найдена'
+                            })
+                            continue
+                            
+                        # Получаем имена классов
+                        class_names = [row[0] for row in class_names_query]
+                        
+                        # Создаем фильтры для всех таблиц
+                        filter_condition_result = AnalysisResult.mssql_sxclass_name.in_(class_names)
+                        filter_condition_migration = MigrationClass.mssql_sxclass_name.in_(class_names)
+                        filter_condition_analysis_data = AnalysisData.mssql_sxclass_name.in_(class_names)
+                    else:
+                        # Неизвестный тип корректировки
+                        results_summary['errors'].append({
+                            'correction_id': correction.id,
+                            'error': f'Неизвестный тип корректировки: {correction.search_type}'
+                        })
+                        continue
+                    
+                    # Обновляем AnalysisResult
+                    analysis_count = AnalysisResult.query.filter(filter_condition_result).update({
+                        'priznak': correction.priznak,
+                        'analyzed_by': 'reapply_corrections',
+                        'status': 'analyzed',
+                        'confidence_score': 1.0
+                    }, synchronize_session=False)
+                    
+                    # Обновляем MigrationClass  
+                    migration_count = MigrationClass.query.filter(filter_condition_migration).update({
+                        'priznak': correction.priznak,
+                        'classified_by': 'reapply_corrections',
+                        'confidence_score': 1.0
+                    }, synchronize_session=False)
+                    
+                    # Обновляем AnalysisData
+                    data_count = AnalysisData.query.filter(filter_condition_analysis_data).update({
+                        'priznak': correction.priznak,
+                        'classified_by': 'reapply_corrections',
+                        'analysis_state': 'analyzed',
+                        'confidence_score': 1.0
+                    }, synchronize_session=False)
+                    
+                    results_summary['updated_analysis_results'] += analysis_count
+                    results_summary['updated_migration_classes'] += migration_count
+                    results_summary['updated_analysis_data'] += data_count
+                    total_reapplied += (analysis_count + migration_count + data_count)
+                    
+                except Exception as e:
+                    results_summary['errors'].append({
+                        'correction_id': correction.id,
+                        'search_type': correction.search_type,
+                        'search_value': correction.search_value,
+                        'error': str(e)
+                    })
+            
+            db.session.commit()
+            
+            # Создаем запись в истории о массовом повторном применении
+            mass_reapply_entry = PriznakCorrectionHistory(
+                search_type='mass_reapply',
+                search_value='all_corrections',
+                class_name='все классы',
+                priznak='различные',
+                updated_analysis_results=results_summary['updated_analysis_results'],
+                updated_migration_classes=results_summary['updated_migration_classes'], 
+                updated_analysis_data=results_summary['updated_analysis_data'],
+                updated_count=total_reapplied,
+                user="system"
+            )
+            db.session.add(mass_reapply_entry)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Повторно применено {results_summary["total_corrections"]} корректировок',
+                'total_updated': total_reapplied,
+                'details': results_summary
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Ошибка при повторном применении корректировок: {str(e)}", exc_info=True)
+            return jsonify({'success': False, 'error': str(e)}), 500
+
 def apply_rule_to_record(rule, record):
     """
     Применяет правило к записи и проверяет, соответствует ли она правилу
