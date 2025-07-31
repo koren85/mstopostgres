@@ -3,13 +3,18 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM загружен, скрипт upload.js инициализирован');
 
     const uploadForm = document.getElementById('uploadForm');
-    const fileInput = document.getElementById('excelFile');
-    const sourceSystemInput = document.getElementById('sourceSystem');
+    // Определяем ID элементов в зависимости от страницы
+    const isAnalysisPage = window.location.pathname === '/analysis';
+    const fileInputId = isAnalysisPage ? 'file' : 'excelFile';
+    const sourceSystemId = isAnalysisPage ? 'source_system' : 'sourceSystem';
+    
+    const fileInput = document.getElementById(fileInputId);
+    const sourceSystemInput = document.getElementById(sourceSystemId);
     const progressContainer = document.getElementById('progressContainer');
     const progressBar = document.getElementById('progressBar');
     const resultDiv = document.getElementById('uploadResult');
 
-    if (uploadForm) {
+    if (uploadForm && fileInput && sourceSystemInput) {
         console.log('Форма uploadForm найдена, добавляем обработчик событий');
 
         uploadForm.addEventListener('submit', function(event) {
@@ -51,10 +56,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 500);
 
             console.log(`Файл выбран: ${file.name}, размер: ${file.size} байт, тип: ${file.type}`);
-            console.log('Начинаем отправку запроса на /upload');
 
+            // Определяем endpoint в зависимости от страницы
+            const endpoint = window.location.pathname === '/analysis' ? '/upload_analysis' : '/upload';
+            console.log(`Отправляем запрос на ${endpoint}`);
+            
             // Отправляем запрос
-            fetch('/upload', {
+            fetch(endpoint, {
                 method: 'POST',
                 body: formData
             })

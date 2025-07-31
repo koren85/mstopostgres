@@ -575,8 +575,16 @@ def init_routes(app):
             base_url = request.form.get('base_url', '')
             
             # Получаем максимальный batch_id и увеличиваем его на 1
-            max_batch_id = db.session.query(func.max(AnalysisData.batch_id)).scalar()
-            batch_id = 1 if max_batch_id is None else int(max_batch_id) + 1
+            max_batch_result = db.session.query(AnalysisData.batch_id).order_by(func.cast(AnalysisData.batch_id, Integer).desc()).first()
+            if max_batch_result is None:
+                batch_id = "1"
+            else:
+                try:
+                    max_batch_num = int(max_batch_result[0])
+                    batch_id = str(max_batch_num + 1)
+                except (ValueError, TypeError):
+                    # Если не получается преобразовать в число, начинаем с 1
+                    batch_id = "1"
             
             # Читаем данные из Excel, пропуская первую строку
             df = pd.read_excel(file, header=1)
